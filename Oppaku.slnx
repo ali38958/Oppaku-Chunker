@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Oppaku.Cli/Oppaku.Cli.csproj" />
+    <Project Path="src/Oppaku.Core/Oppaku.Core.csproj" />
+    <Project Path="src/Oppaku.Gui/Oppaku.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Oppaku.Tests/Oppaku.Tests.csproj" />
+  </Folder>
+</Solution>

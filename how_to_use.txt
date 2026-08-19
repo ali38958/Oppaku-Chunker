@@ -1,0 +1,83 @@
+================================================
+OPPAKU FILE CHUNKER V2
+User Guide & Documentation
+================================================
+
+Oppaku is a powerful utility designed to split incredibly large files or massive folder structures into tiny parts that can be transported one by one using small portable storage devices (like USBs), and then meticulously reassembled on the other side.
+
+Oppaku offers two distinct interfaces sharing the exact same robust engine:
+1. The Visual GUI (Oppaku.Gui)
+2. The Command-Line Interface (Oppaku.Cli)
+
+------------------------------------------------
+1. USING THE GUI APP
+------------------------------------------------
+To run the GUI:
+Navigate to the root folder and run:
+> dotnet run --project src/Oppaku.Gui
+
+EXTRACTING PARTS:
+1. Select your Source (File or Folder).
+2. Select your Destination Folder (e.g., your USB drive).
+3. Set your Chunk Size (e.g., 512 MB).
+4. Click "Calculate Parts". Oppaku will lock in a secure SHA-256 hash.
+5. Select the specific parts you want to move right now.
+6. Click "Extract Selected".
+
+REBUILDING (INSERTING) PARTS:
+1. On the target machine, select the Part File(s) (.oppk) from your USB.
+2. Select a Target Location. If this is the first part, pick a folder. If you are adding parts to an existing partial rebuild, select the target file.
+3. Click "Insert Part(s)". The data will be safely injected into the target file.
+4. Keep repeating this process as you bring more parts over.
+
+FINALISING:
+Once all parts are inserted, select any `.oppk` file from the set and your Target Location file, then click "Finalise". Oppaku will verify the final rebuilt file against the original cryptographic hash.
+
+------------------------------------------------
+2. USING THE CLI APP
+------------------------------------------------
+To use the CLI globally, build it and add the executable to your system PATH:
+> dotnet publish src/Oppaku.Cli -c Release -r win-x64 --self-contained
+Then add the resulting publish folder to your Windows Environment Variables.
+Once installed, you can just type `oppaku` from any folder.
+
+CLI COMMANDS:
+
+[EXTRACT]
+Splits a source file or folder into parts and extracts specific ones to a destination.
+Command:
+> oppaku extract --source <path> --dest <folder> --size <num> --unit <KB|MB|GB> --parts <all | 0,1,2>
+
+Examples:
+- Extract all parts at 512 MB:
+  > oppaku extract --source "C:\LargeGame" --dest "E:\USB" --size 512 --unit MB --parts all
+
+- Extract only parts 0, 1, and 4 at 2 GB:
+  > oppaku extract --source "C:\LargeGame" --dest "E:\USB" --size 2 --unit GB --parts 0,1,4
+
+[REBUILD]
+Merges extracted chunk(s) into a target file.
+Command:
+> oppaku rebuild --chunks <file1;file2> --dest <file/folder>
+
+Examples:
+- Rebuild/Append two parts into a destination folder:
+  > oppaku rebuild --chunks "E:\USB\LargeGame.part0.oppk;E:\USB\LargeGame.part1.oppk" --dest "D:\RestoredFiles"
+  
+- Append a part directly to an existing partial file:
+  > oppaku rebuild --chunks "E:\USB\LargeGame.part2.oppk" --dest "D:\RestoredFiles\LargeGame.oppaku.zip"
+
+[FINALISE]
+Verifies the reconstructed file matches the exact original hash.
+Command:
+> oppaku finalise --chunk <any_chunk.oppk> --dest <file>
+
+Example:
+> oppaku finalise --chunk "E:\USB\LargeGame.part0.oppk" --dest "D:\RestoredFiles\LargeGame.oppaku.zip"
+
+------------------------------------------------
+FEATURES & RESILIENCY
+------------------------------------------------
+- Folder Support: If you select a folder as the source, Oppaku automatically compresses it temporarily in the background before chunking it.
+- Smart State Resumption: A hidden `.progress` file is maintained alongside the rebuilt file tracking exactly which parts are merged and which are missing.
+- Verification: The `Finalise` operation guarantees bit-for-bit accuracy using cryptographic hashing.
