@@ -40,14 +40,62 @@ public partial class MainWindow : Window
     private readonly Extractor _extractor = new();
     private readonly Rebuilder _rebuilder = new();
     public ObservableCollection<PartViewModel> Parts { get; set; } = new();
+    private readonly ObservableCollection<string> _logLines = new();
 
     public MainWindow()
     {
         InitializeComponent();
         Parts = new ObservableCollection<PartViewModel>();
         LstParts.ItemsSource = Parts;
-        TxtGlobalMessage.Text = "Please calculate parts first.";
+        LstLog.ItemsSource = _logLines;
+        Log("Oppaku ready. Please select a source and calculate parts.");
     }
+
+    // ─── Logging ──────────────────────────────────────────────────────────────
+
+    private void Log(string message)
+    {
+        string line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        _logLines.Add(line);
+        LstLog.ScrollIntoView(line);
+    }
+
+    private void SetProgress(double value, double max, string title, string detail = "")
+    {
+        TxtGlobalTitle.Text = title;
+        PbGlobalProgress.IsIndeterminate = false;
+        PbGlobalProgress.Maximum = max;
+        PbGlobalProgress.Value = value;
+        TxtProgressPercent.Text = max > 0 ? $"{value / max * 100:0.0}%" : "";
+        TxtProgressDetail.Text = detail;
+    }
+
+    private void SetIndeterminate(string title, string detail = "")
+    {
+        TxtGlobalTitle.Text = title;
+        PbGlobalProgress.IsIndeterminate = true;
+        TxtProgressPercent.Text = "";
+        TxtProgressDetail.Text = detail;
+    }
+
+    private void ClearProgress(string title = "Ready")
+    {
+        TxtGlobalTitle.Text = title;
+        PbGlobalProgress.IsIndeterminate = false;
+        PbGlobalProgress.Value = 0;
+        TxtProgressPercent.Text = "";
+        TxtProgressDetail.Text = "";
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024 * 1024):0.00} GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / (1024.0 * 1024):0.00} MB";
+        if (bytes >= 1024L) return $"{bytes / 1024.0:0.00} KB";
+        return $"{bytes} B";
+    }
+
+    // ─── Browse Handlers ──────────────────────────────────────────────────────
 
     private void BtnBrowseSourceFile_Click(object sender, RoutedEventArgs e)
     {
@@ -85,7 +133,8 @@ public partial class MainWindow : Window
         _preparedSourcePath = null;
         Parts.Clear();
         BtnExtract.IsEnabled = false;
-        TxtGlobalMessage.Text = "Please calculate parts first.";
+        Log("Source changed — please recalculate parts.");
+        ClearProgress();
     }
 
     private long GetChunkSizeBytes(out long value, out string unit)
@@ -102,6 +151,8 @@ public partial class MainWindow : Window
         };
     }
 
+    // ─── Calculate Parts ──────────────────────────────────────────────────────
+
     private async void BtnCalculateParts_Click(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrEmpty(TxtSourceFile.Text)) return;
@@ -109,54 +160,85 @@ public partial class MainWindow : Window
         BtnCalculateParts.IsEnabled = false;
         Parts.Clear();
         
-        TxtGlobalTitle.Text = "Calculating Parts";
-        TxtGlobalMessage.Text = "Preparing file/folder and computing whole-file SHA-256 hash...\nThis may take a while for large files.";
-        PbGlobalProgress.IsIndeterminate = true;
+        Log("─────────────────────────────────");
+        Log($"Source: {TxtSourceFile.Text}");
+
+        string sourcePath = TxtSourceFile.Text;
         
         try
         {
-            string sourcePath = TxtSourceFile.Text;
-            
-            await Task.Run(() =>
+            // Step 1 — zip if folder
+            if (Directory.Exists(sourcePath))
             {
-                if (Directory.Exists(sourcePath))
+                SetIndeterminate("Compressing Folder", "Zipping folder before chunking...");
+                Log("Source is a folder — compressing to temporary zip...");
+
+                await Task.Run(() =>
                 {
                     string zipPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(sourcePath) + ".oppaku.zip");
                     if (File.Exists(zipPath)) File.Delete(zipPath);
                     ZipFile.CreateFromDirectory(sourcePath, zipPath, CompressionLevel.Fastest, false);
                     _preparedSourcePath = zipPath;
-                }
-                else
-                {
-                    _preparedSourcePath = sourcePath;
-                }
+                });
 
-                _sourceHash = _extractor.ComputeSourceFileHash(_preparedSourcePath);
-            });
-            
+                Log($"Compression complete → {Path.GetFileName(_preparedSourcePath!)}");
+            }
+            else
+            {
+                _preparedSourcePath = sourcePath;
+            }
+
+            // Step 2 — hash
             var fi = new FileInfo(_preparedSourcePath!);
+            long fileSize = fi.Length;
+            Log($"File size: {FormatBytes(fileSize)}");
+            Log("Computing SHA-256 hash...");
+            SetProgress(0, fileSize, "Computing Hash", $"0 B / {FormatBytes(fileSize)}");
+
+            string preparedPath = _preparedSourcePath!;
+            string hash = "";
+
+            var hashProgress = new Progress<long>(bytesRead =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    SetProgress(bytesRead, fileSize, "Computing Hash",
+                        $"{FormatBytes(bytesRead)} / {FormatBytes(fileSize)} hashed");
+                });
+            });
+
+            await Task.Run(() => hash = _extractor.ComputeSourceFileHash(preparedPath, hashProgress));
+            _sourceHash = hash;
+
+            // Step 3 — compute parts
             long chunkSizeBytes = GetChunkSizeBytes(out long value, out string unit);
-            int totalChunks = (int)Math.Ceiling((double)fi.Length / chunkSizeBytes);
+            int totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
             
             for (int i = 0; i < totalChunks; i++)
             {
-                Parts.Add(new PartViewModel { Index = i, DisplayName = $"Part {i} ({value} {unit})", IsSelected = false });
+                long partBytes = (i < totalChunks - 1) ? chunkSizeBytes : (fileSize - (long)i * chunkSizeBytes);
+                Parts.Add(new PartViewModel
+                {
+                    Index = i,
+                    DisplayName = $"Part {i}  —  {value} {unit}  ({FormatBytes(partBytes)})",
+                    IsSelected = false
+                });
             }
 
-            TxtGlobalTitle.Text = "Calculation Complete";
-            TxtGlobalMessage.Text = $"Hash: {_sourceHash}\nTotal Parts: {totalChunks}. Select parts to extract.";
+            Log($"Hash: {_sourceHash}");
+            Log($"Total parts: {totalChunks} × {value} {unit}  (last part may be smaller)");
+            SetProgress(fileSize, fileSize, "Hash Complete", $"All {FormatBytes(fileSize)} hashed ✓");
             CheckExtractReady();
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            TxtGlobalTitle.Text = "Error";
-            TxtGlobalMessage.Text = "Error preparing source.";
+            Log($"ERROR: {ex.Message}");
+            ClearProgress("Error");
         }
         finally
         {
             BtnCalculateParts.IsEnabled = true;
-            PbGlobalProgress.IsIndeterminate = false;
         }
     }
 
@@ -166,6 +248,8 @@ public partial class MainWindow : Window
             && !string.IsNullOrEmpty(TxtExtractOutput.Text)
             && Parts.Count > 0;
     }
+
+    // ─── Extract ──────────────────────────────────────────────────────────────
 
     private async void BtnExtract_Click(object sender, RoutedEventArgs e)
     {
@@ -179,14 +263,13 @@ public partial class MainWindow : Window
         string output = TxtExtractOutput.Text;
         string preparedPath = _preparedSourcePath!;
         
-        // Check for overwrite before locking UI
         foreach (var part in selectedParts)
         {
             string chunkFileName = $"{Path.GetFileName(preparedPath)}.part{part.Index}.oppk";
             string chunkPath = Path.Combine(output, chunkFileName);
             if (File.Exists(chunkPath))
             {
-                var result = MessageBox.Show($"File '{chunkFileName}' already exists in destination. Do you want to overwrite it?", "Overwrite?", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                var result = MessageBox.Show($"'{chunkFileName}' already exists. Overwrite?", "Overwrite?", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (result == MessageBoxResult.No) return;
             }
         }
@@ -194,38 +277,56 @@ public partial class MainWindow : Window
         BtnExtract.IsEnabled = false;
         BtnCalculateParts.IsEnabled = false;
         
-        long chunkSizeBytes = GetChunkSizeBytes(out _, out _);
+        long chunkSizeBytes = GetChunkSizeBytes(out long sizeVal, out string sizeUnit);
         string hash = _sourceHash!;
+        var fi = new FileInfo(preparedPath);
 
-        TxtGlobalTitle.Text = "Extracting Parts";
-        TxtGlobalMessage.Text = $"Oppaku is preparing to split {selectedParts.Count} parts from your source file...";
-        PbGlobalProgress.Maximum = selectedParts.Count;
-        PbGlobalProgress.Value = 0;
-        PbGlobalProgress.IsIndeterminate = false;
+        Log("─────────────────────────────────");
+        Log($"Extracting {selectedParts.Count} part(s) → {output}");
 
         try
         {
-            await Task.Run(() =>
+            int partsDone = 0;
+            foreach (var part in selectedParts)
             {
-                int count = 0;
-                foreach (var part in selectedParts)
+                long partActualSize = Math.Min(chunkSizeBytes, fi.Length - (long)part.Index * chunkSizeBytes);
+                
+                Log($"→ Part {part.Index}: {FormatBytes(partActualSize)}...");
+                SetProgress(partsDone, selectedParts.Count, $"Extracting Part {part.Index} of {selectedParts.Count - 1}",
+                    $"Starting part {part.Index}...");
+
+                int capturedIndex = part.Index;
+                int capturedDone = partsDone;
+
+                var partProgress = new Progress<long>(bytesWritten =>
                 {
-                    Dispatcher.Invoke(() => TxtGlobalMessage.Text = $"Oppaku is splitting part {part.Index} from '{Path.GetFileName(preparedPath)}'...");
-                    _extractor.ExtractChunk(preparedPath, part.Index, chunkSizeBytes, output, hash);
-                    count++;
-                    Dispatcher.Invoke(() => PbGlobalProgress.Value = count);
-                }
-            });
-            
-            TxtGlobalTitle.Text = "Extraction Complete";
-            TxtGlobalMessage.Text = "Selected parts written.";
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        double overall = capturedDone + (double)bytesWritten / partActualSize;
+                        SetProgress(overall, selectedParts.Count,
+                            $"Extracting Part {capturedIndex}",
+                            $"Part {capturedIndex}: {FormatBytes(bytesWritten)} / {FormatBytes(partActualSize)}");
+                    });
+                });
+
+                await Task.Run(() => _extractor.ExtractChunk(preparedPath, part.Index, chunkSizeBytes, output, hash, partProgress));
+
+                partsDone++;
+                Log($"✓ Part {part.Index} complete ({FormatBytes(partActualSize)})");
+                SetProgress(partsDone, selectedParts.Count, "Extracting Parts",
+                    $"{partsDone} / {selectedParts.Count} parts done");
+            }
+
+            Log($"All {selectedParts.Count} parts extracted successfully.");
+            SetProgress(selectedParts.Count, selectedParts.Count, "Extraction Complete",
+                $"{selectedParts.Count} parts written to destination ✓");
             MessageBox.Show("Selected parts extracted successfully to destination.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Extraction Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            TxtGlobalTitle.Text = "Extraction Failed";
-            TxtGlobalMessage.Text = ex.Message;
+            Log($"ERROR: {ex.Message}");
+            ClearProgress("Extraction Failed");
         }
         finally
         {
@@ -234,7 +335,8 @@ public partial class MainWindow : Window
         }
     }
 
-    // --- REBUILD TAB ---
+    // ─── Rebuild Tab ──────────────────────────────────────────────────────────
+
     private void BtnBrowseChunk_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Title = "Select Part File(s) (.oppk)", Filter = "Oppaku Parts (*.oppk)|*.oppk|All Files (*.*)|*.*", Multiselect = true };
@@ -279,58 +381,87 @@ public partial class MainWindow : Window
         string[] chunkFiles = TxtChunkFile.Text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
         string targetLoc = TxtRebuildOutput.Text;
 
-        TxtGlobalTitle.Text = "Inserting Parts";
-        TxtGlobalMessage.Text = $"Oppaku is preparing to insert {chunkFiles.Length} parts into target file...";
-        PbGlobalProgress.IsIndeterminate = false;
-        PbGlobalProgress.Maximum = chunkFiles.Length;
-        PbGlobalProgress.Value = 0;
+        Log("─────────────────────────────────");
+        Log($"Inserting {chunkFiles.Length} part(s) → {targetLoc}");
+
+        SetProgress(0, chunkFiles.Length, "Inserting Parts", "Starting...");
 
         try
         {
             string newTargetLoc = targetLoc;
-            await Task.Run(() =>
+            int count = 0;
+
+            foreach (var chunkFile in chunkFiles)
             {
-                int count = 0;
-                foreach (var chunkFile in chunkFiles)
+                if (!File.Exists(chunkFile))
                 {
-                    Dispatcher.Invoke(() => TxtGlobalMessage.Text = $"Oppaku is merging '{Path.GetFileName(chunkFile)}' into target...");
-                    if (File.Exists(chunkFile))
-                    {
-                        newTargetLoc = _rebuilder.InsertChunk(chunkFile, newTargetLoc);
-                    }
-                    count++;
-                    Dispatcher.Invoke(() => PbGlobalProgress.Value = count);
+                    Log($"✗ File not found: {chunkFile}");
+                    continue;
                 }
-            });
-            
+
+                var fi = new FileInfo(chunkFile);
+                // Read actual chunk payload size from header so we can show real byte progress
+                long chunkPayloadSize = fi.Length; // fallback
+                try
+                {
+                    using var s = new FileStream(chunkFile, FileMode.Open, FileAccess.Read);
+                    using var r = new BinaryReader(s, System.Text.Encoding.UTF8);
+                    var meta = ChunkMetadata.ReadFrom(r);
+                    chunkPayloadSize = meta.ActualChunkSize;
+                }
+                catch { /* non-critical, use file length */ }
+
+                Log($"→ Merging '{fi.Name}' ({FormatBytes(chunkPayloadSize)})...");
+                SetProgress(0, chunkPayloadSize, $"Merging Part {count + 1} / {chunkFiles.Length}",
+                    $"0 B / {FormatBytes(chunkPayloadSize)} written...");
+
+                string captured = chunkFile;
+                long capturedSize = chunkPayloadSize;
+
+                var partProgress = new Progress<long>(bytesWritten =>
+                {
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        SetProgress(bytesWritten, capturedSize,
+                            $"Merging Part {count + 1} / {chunkFiles.Length}",
+                            $"{FormatBytes(bytesWritten)} / {FormatBytes(capturedSize)} written");
+                    });
+                });
+
+                await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(captured, newTargetLoc, partProgress));
+
+                count++;
+                Log($"✓ '{fi.Name}' merged ({FormatBytes(chunkPayloadSize)}).");
+                SetProgress(count, chunkFiles.Length, "Inserting Parts",
+                    $"{count} / {chunkFiles.Length} parts inserted");
+            }
+
             TxtRebuildOutput.Text = newTargetLoc;
             
-            // Read progress to report back
             string progressPath = $"{newTargetLoc}.progress";
-            string statusMsg = $"Successfully inserted {chunkFiles.Length} part(s).";
             if (File.Exists(progressPath))
             {
                 var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
                 if (progress != null)
                 {
                     var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
-                    statusMsg += $"\nMerged {progress.Received.Count} / {progress.Total} parts total.";
+                    Log($"Status: {progress.Received.Count} / {progress.Total} parts in file.");
                     if (missing.Count > 0)
-                        statusMsg += $"\nMissing parts: {string.Join(", ", missing)}";
+                        Log($"Missing parts: {string.Join(", ", missing)}");
                     else
-                        statusMsg += "\nAll parts merged! You can now Finalise.";
+                        Log("All parts inserted — ready to Finalise!");
                 }
             }
-            
-            TxtGlobalTitle.Text = "Insertion Complete";
-            TxtGlobalMessage.Text = statusMsg;
-            MessageBox.Show($"Successfully added {chunkFiles.Length} part(s).", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            SetProgress(chunkFiles.Length, chunkFiles.Length, "Insertion Complete",
+                $"{count} part(s) written ✓");
+            MessageBox.Show($"Successfully added {count} part(s).", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Rebuild Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            TxtGlobalTitle.Text = "Insertion Failed";
-            TxtGlobalMessage.Text = ex.Message;
+            Log($"ERROR: {ex.Message}");
+            ClearProgress("Insertion Failed");
         }
         finally
         {
@@ -345,7 +476,7 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrEmpty(firstChunk) || !File.Exists(firstChunk)) 
         {
-            MessageBox.Show("Please select at least one valid part file (.oppk) so we can read the master hash from its header.", "Error");
+            MessageBox.Show("Please select at least one valid part file (.oppk) so we can read the master hash.", "Error");
             return;
         }
 
@@ -354,9 +485,9 @@ public partial class MainWindow : Window
 
         BtnFinalise.IsEnabled = false;
 
-        TxtGlobalTitle.Text = "Finalising Rebuild";
-        TxtGlobalMessage.Text = "Finalising and verifying full hash against original source.\nThis may take a while for large files.";
-        PbGlobalProgress.IsIndeterminate = true;
+        Log("─────────────────────────────────");
+        Log($"Finalising: {targetFile}");
+        SetIndeterminate("Finalising Rebuild", "Reading master hash from chunk header...");
 
         try
         {
@@ -369,12 +500,29 @@ public partial class MainWindow : Window
                 sourceHash = meta.SourceFileHash;
             });
 
+            Log($"Master hash: {sourceHash}");
+
+            var finalFi = new FileInfo(targetFile);
+            long finalSize = finalFi.Exists ? finalFi.Length : 0;
+            Log($"Verifying file hash ({FormatBytes(finalSize)})...");
+            SetProgress(0, finalSize, "Verifying Hash", $"0 B / {FormatBytes(finalSize)}");
+
             bool success = false;
             string errorMsg = "";
+
+            var finalProgress = new Progress<long>(bytesHashed =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    SetProgress(bytesHashed, finalSize, "Verifying Hash",
+                        $"{FormatBytes(bytesHashed)} / {FormatBytes(finalSize)} verified");
+                });
+            });
+
             await Task.Run(() =>
             {
                 try {
-                    _rebuilder.Finalise(targetFile, sourceHash);
+                    _rebuilder.Finalise(targetFile, sourceHash, finalProgress);
                     success = true;
                 } catch (Exception inner) {
                     errorMsg = inner.Message;
@@ -383,14 +531,13 @@ public partial class MainWindow : Window
 
             if (success)
             {
-                TxtGlobalTitle.Text = "Finalisation Complete!";
-                TxtGlobalMessage.Text = $"File hash matches original source:\n{sourceHash}";
+                Log("✓ Hash matches — file is intact!");
+                SetProgress(finalSize, finalSize, "Finalisation Complete!", "File integrity verified ✓");
                 MessageBox.Show("Rebuild successful! The file is completely intact.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
                 string progressPath = $"{targetFile}.progress";
-                string extraInfo = "";
                 if (File.Exists(progressPath))
                 {
                     var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
@@ -398,24 +545,22 @@ public partial class MainWindow : Window
                     {
                         var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
                         if (missing.Count > 0)
-                            extraInfo = $"\nMissing parts: {string.Join(", ", missing)}";
+                            Log($"Missing parts: {string.Join(", ", missing)}");
                     }
                 }
-                
-                TxtGlobalTitle.Text = "Finalisation Failed";
-                TxtGlobalMessage.Text = $"{errorMsg}{extraInfo}";
+                Log($"✗ Finalisation failed: {errorMsg}");
+                ClearProgress("Finalisation Failed");
             }
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Finalisation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            TxtGlobalTitle.Text = "Finalisation Failed";
-            TxtGlobalMessage.Text = ex.Message;
+            Log($"ERROR: {ex.Message}");
+            ClearProgress("Finalisation Failed");
         }
         finally
         {
             BtnFinalise.IsEnabled = true;
-            PbGlobalProgress.IsIndeterminate = false;
         }
     }
 }

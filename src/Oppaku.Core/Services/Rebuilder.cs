@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Oppaku.Core.Models;
 using Oppaku.Core.Helpers;
 using Oppaku.Core.Exceptions;
@@ -15,6 +16,8 @@ public class RebuildProgress
 
 public class Rebuilder
 {
+    private const int BufferSize = 4 * 1024 * 1024; // 4 MB
+    private const int ProgressIntervalMs = 80;
     public void InitialiseTarget(string destDir, ChunkMetadata metadata, string outputFileName)
     {
         if (!Directory.Exists(destDir))
@@ -35,7 +38,7 @@ public class Rebuilder
         }
     }
 
-    public string InsertChunk(string chunkBinPath, string targetLocation)
+    public string InsertChunk(string chunkBinPath, string targetLocation, IProgress<long>? progress = null)
     {
         if (!File.Exists(chunkBinPath))
             throw new OppakuException(ErrorCode.InvalidChunk, $"Chunk file not found: {chunkBinPath}");
@@ -67,15 +70,17 @@ public class Rebuilder
             InitialiseTarget(Path.GetDirectoryName(targetFilePath) ?? "", metadata, Path.GetFileName(targetFilePath));
         }
 
-        using var sourcePayloadStream = new FileStream(chunkBinPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var sourcePayloadStream = new FileStream(chunkBinPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.SequentialScan);
         sourcePayloadStream.Position = payloadStartOffset;
 
-        using var destStream = new FileStream(targetFilePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        using var destStream = new FileStream(targetFilePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite, BufferSize);
         destStream.Position = metadata.ByteOffset;
 
         using var sha256 = System.Security.Cryptography.SHA256.Create();
-        byte[] buffer = new byte[64 * 1024];
+        byte[] buffer = new byte[BufferSize];
         long bytesRemaining = metadata.ActualChunkSize;
+        long bytesWritten = 0;
+        var sw = Stopwatch.StartNew();
 
         while (bytesRemaining > 0)
         {
@@ -86,7 +91,15 @@ public class Rebuilder
             sha256.TransformBlock(buffer, 0, bytesRead, null, 0);
             destStream.Write(buffer, 0, bytesRead);
             bytesRemaining -= bytesRead;
+            bytesWritten += bytesRead;
+
+            if (progress != null && sw.ElapsedMilliseconds >= ProgressIntervalMs)
+            {
+                progress.Report(bytesWritten);
+                sw.Restart();
+            }
         }
+        progress?.Report(bytesWritten); // final
         
         sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         string computedChecksum = $"sha256:{Convert.ToHexString(sha256.Hash!).ToLowerInvariant()}";
@@ -97,19 +110,19 @@ public class Rebuilder
         }
 
         var progressJson = File.ReadAllText(progressPath);
-        var progress = JsonSerializer.Deserialize<RebuildProgress>(progressJson) ?? new RebuildProgress();
+        var rebuildState = JsonSerializer.Deserialize<RebuildProgress>(progressJson) ?? new RebuildProgress();
 
-        if (!progress.Received.Contains(metadata.ChunkIndex))
+        if (!rebuildState.Received.Contains(metadata.ChunkIndex))
         {
-            progress.Received.Add(metadata.ChunkIndex);
-            progress.Received.Sort();
-            File.WriteAllText(progressPath, JsonSerializer.Serialize(progress));
+            rebuildState.Received.Add(metadata.ChunkIndex);
+            rebuildState.Received.Sort();
+            File.WriteAllText(progressPath, JsonSerializer.Serialize(rebuildState));
         }
 
         return targetFilePath;
     }
 
-    public void Finalise(string targetFilePath, string sourceFileHash)
+    public void Finalise(string targetFilePath, string sourceFileHash, IProgress<long>? progress = null)
     {
         string progressPath = $"{targetFilePath}.progress";
 
@@ -118,13 +131,13 @@ public class Rebuilder
         if (!File.Exists(progressPath))
             throw new OppakuException(ErrorCode.InvalidChunk, "Progress file does not exist");
 
-        var progress = JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-        if (progress == null || progress.Received.Count < progress.Total)
+        var rebuildState = JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
+        if (rebuildState == null || rebuildState.Received.Count < rebuildState.Total)
         {
             throw new OppakuException(ErrorCode.InvalidChunk, "Cannot finalise: not all chunks have been received");
         }
 
-        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath);
+        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath, progress);
         if (rebuiltHash != sourceFileHash)
         {
             throw new OppakuException(ErrorCode.ChecksumMismatch, "Final rebuilt file hash does not match original source hash");
