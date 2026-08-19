@@ -62,7 +62,7 @@ Commands:
 
   rebuild   Insert chunk(s) into a target file or folder.
             Usage: oppaku rebuild --chunks <file1;file2> --dest <file/folder>
-            Example: oppaku rebuild --chunks "".\part0.oppk;.\part1.oppk"" --dest .\rebuilt_file.zip
+            Example: oppaku rebuild --chunks "".\\part0.oppk;.\\part1.oppk"" --dest .\rebuilt_file.zip
 
   finalise  Verify and finalise a rebuilt file. (can also use 'finalize')
             Usage: oppaku finalise --chunk <any_chunk.oppk> --dest <file>
@@ -79,7 +79,24 @@ Commands:
         }
         if (required)
             throw new ArgumentException($"Missing required argument: {name}");
-        return null;
+        return null!;
+    }
+
+    static void PrintProgress(long current, long total, string label)
+    {
+        if (total <= 0) return;
+        int pct = (int)(current * 100 / total);
+        int filled = pct / 4; // 25 chars wide bar
+        string bar = $"[{new string('█', filled)}{new string('░', 25 - filled)}]";
+        Console.Write($"\r  {bar} {pct,3}%  {label}   ");
+    }
+
+    static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024 * 1024):0.00} GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / (1024.0 * 1024):0.00} MB";
+        if (bytes >= 1024L) return $"{bytes / 1024.0:0.00} KB";
+        return $"{bytes} B";
     }
 
     static void Extract(string[] args)
@@ -105,22 +122,29 @@ Commands:
         string preparedPath = source;
         if (Directory.Exists(source))
         {
-            preparedPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(source) + ".oppaku.zip");
+            preparedPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(source) + ".oppaku-dir");
             if (File.Exists(preparedPath)) File.Delete(preparedPath);
-            ZipFile.CreateFromDirectory(source, preparedPath, CompressionLevel.Fastest, false);
-            Console.WriteLine($"      Zipped folder to temporary file.");
+            FolderPacker.Pack(source, preparedPath);
+            Console.WriteLine("      Packed folder to zero-space compatible archive.");
         }
 
-        var extractor = new Extractor();
-        Console.WriteLine($"[2/3] Computing whole-file SHA-256 hash. This may take a while...");
-        string hash = extractor.ComputeSourceFileHash(preparedPath);
-        
         var fi = new FileInfo(preparedPath);
-        int totalChunks = (int)Math.Ceiling((double)fi.Length / chunkSizeBytes);
-        Console.WriteLine($"      Hash: {hash}");
-        Console.WriteLine($"      Total Parts: {totalChunks}");
+        Console.WriteLine($"[2/3] Computing SHA-256 hash of {FormatBytes(fi.Length)}...");
 
-        List<int> partsToExtract = new List<int>();
+        var extractor = new Extractor();
+        string hash = "";
+
+        var hashProgress = new Progress<long>(bytesRead =>
+            PrintProgress(bytesRead, fi.Length, $"{FormatBytes(bytesRead)} / {FormatBytes(fi.Length)} hashed"));
+
+        hash = extractor.ComputeSourceFileHash(preparedPath, hashProgress);
+        Console.WriteLine(); // newline after progress bar
+
+        int totalChunks = (int)Math.Ceiling((double)fi.Length / chunkSizeBytes);
+        Console.WriteLine($"      Hash : {hash}");
+        Console.WriteLine($"      Parts: {totalChunks} × {sizeValue} {unitStr}");
+
+        List<int> partsToExtract = new();
         if (partsStr.Equals("all", StringComparison.OrdinalIgnoreCase))
         {
             partsToExtract.AddRange(Enumerable.Range(0, totalChunks));
@@ -130,7 +154,7 @@ Commands:
             partsToExtract = partsStr.Split(',').Select(s => int.Parse(s.Trim())).ToList();
         }
 
-        Console.WriteLine($"[3/3] Extracting {partsToExtract.Count} parts...");
+        Console.WriteLine($"[3/3] Extracting {partsToExtract.Count} part(s) to '{dest}'...");
         Directory.CreateDirectory(dest);
         
         int count = 0;
@@ -139,14 +163,20 @@ Commands:
             if (partIndex < 0 || partIndex >= totalChunks)
                 throw new ArgumentException($"Part index {partIndex} is out of bounds (0 to {totalChunks - 1}).");
 
+            long partSize = Math.Min(chunkSizeBytes, fi.Length - (long)partIndex * chunkSizeBytes);
             string chunkFileName = $"{Path.GetFileName(preparedPath)}.part{partIndex}.oppk";
-            Console.WriteLine($"      -> Splitting part {partIndex} to '{chunkFileName}'");
-            extractor.ExtractChunk(preparedPath, partIndex, chunkSizeBytes, dest, hash);
+            Console.WriteLine($"  → Part {partIndex}: {FormatBytes(partSize)}");
+
+            var partProgress = new Progress<long>(bytesWritten =>
+                PrintProgress(bytesWritten, partSize, $"{FormatBytes(bytesWritten)} / {FormatBytes(partSize)} written"));
+
+            extractor.ExtractChunk(preparedPath, partIndex, chunkSizeBytes, dest, hash, partProgress);
+            Console.WriteLine($"\r  ✓ Part {partIndex} written → {chunkFileName}              ");
             count++;
         }
 
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\nSuccessfully extracted {count} parts to {dest}");
+        Console.WriteLine($"\nSuccessfully extracted {count} part(s) to '{dest}'");
         Console.ResetColor();
     }
 
@@ -155,40 +185,63 @@ Commands:
         string chunksRaw = GetArg(args, "--chunks", true);
         string dest = GetArg(args, "--dest", true);
 
-        string[] chunkFiles = chunksRaw.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
+        string[] chunkFiles = chunksRaw.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                       .Select(s => s.Trim()).ToArray();
         
         var rebuilder = new Rebuilder();
         string currentTarget = dest;
 
-        Console.WriteLine($"[1/1] Merging {chunkFiles.Length} parts into target...");
+        Console.WriteLine($"[1/1] Merging {chunkFiles.Length} part(s) into target...");
+
+        int count = 0;
         foreach (var file in chunkFiles)
         {
             if (!File.Exists(file))
                 throw new FileNotFoundException($"Part file not found: {file}");
-            
-            Console.WriteLine($"      -> Merging '{Path.GetFileName(file)}'");
-            currentTarget = rebuilder.InsertChunk(file, currentTarget);
+
+            // Read payload size from header for accurate progress
+            long chunkPayloadSize = new FileInfo(file).Length;
+            try
+            {
+                using var s = new FileStream(file, FileMode.Open, FileAccess.Read);
+                using var r = new BinaryReader(s, System.Text.Encoding.UTF8);
+                var meta = ChunkMetadata.ReadFrom(r);
+                chunkPayloadSize = meta.ActualChunkSize;
+            }
+            catch { /* fallback to file size */ }
+
+            count++;
+            Console.WriteLine($"  → [{count}/{chunkFiles.Length}] '{Path.GetFileName(file)}' ({FormatBytes(chunkPayloadSize)})");
+
+            long capturedSize = chunkPayloadSize;
+            var partProgress = new Progress<long>(bytesWritten =>
+                PrintProgress(bytesWritten, capturedSize, $"{FormatBytes(bytesWritten)} / {FormatBytes(capturedSize)} written"));
+
+            currentTarget = rebuilder.InsertChunk(file, currentTarget, partProgress);
+            Console.WriteLine($"\r  ✓ Merged.                                                  ");
         }
 
-        string progressPath = $"{currentTarget}.progress";
-        string statusMsg = "";
-        if (File.Exists(progressPath))
+        // Report status from embedded metadata
+        var state = rebuilder.GetProgress(currentTarget);
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"\nSuccessfully inserted {chunkFiles.Length} part(s) into '{currentTarget}'");
+        if (state != null)
         {
-            var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-            if (progress != null)
+            var missing = Enumerable.Range(0, state.Total).Except(state.Received).ToList();
+            Console.WriteLine($"Progress: {state.Received.Count} / {state.Total} parts in file.");
+            if (missing.Count > 0)
             {
-                var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
-                statusMsg = $"\nMerged {progress.Received.Count} / {progress.Total} parts total.";
-                if (missing.Count > 0)
-                    statusMsg += $"\nMissing parts: {string.Join(", ", missing)}";
-                else
-                    statusMsg += "\nAll parts merged! You can now run the 'finalise' command.";
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Missing parts: {string.Join(", ", missing)}");
+            }
+            else
+            {
+                Console.WriteLine("All parts inserted — auto-starting finalisation!");
+                Console.ResetColor();
+                Finalise(new string[] { "finalise", "--chunk", chunkFiles[0], "--dest", currentTarget });
+                return; // Exit Rebuild, Finalise handles the rest
             }
         }
-
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\nSuccessfully inserted {chunkFiles.Length} part(s) into {currentTarget}");
-        Console.WriteLine(statusMsg);
         Console.ResetColor();
     }
 
@@ -208,31 +261,55 @@ Commands:
             var meta = ChunkMetadata.ReadFrom(reader);
             sourceHash = meta.SourceFileHash;
         }
+        Console.WriteLine($"      Hash: {sourceHash}");
 
-        Console.WriteLine($"[2/2] Finalising and verifying full hash. This may take a while...");
         var rebuilder = new Rebuilder();
-        
+
+        // Get content size from embedded metadata for accurate progress display
+        var state = rebuilder.GetProgress(targetFile);
+        long contentSize = state?.ContentSize ?? new FileInfo(targetFile).Length;
+
+        Console.WriteLine($"[2/2] Verifying {FormatBytes(contentSize)}...");
+
+        var finalProgress = new Progress<long>(bytesHashed =>
+            PrintProgress(bytesHashed, contentSize, $"{FormatBytes(bytesHashed)} / {FormatBytes(contentSize)} verified"));
+
         try
         {
-            rebuilder.Finalise(targetFile, sourceHash);
+            rebuilder.Finalise(targetFile, sourceHash, finalProgress);
+            Console.WriteLine(); // newline after progress bar
+
+            if (FolderPacker.IsPackedFolder(targetFile))
+            {
+                string destDir = targetFile.EndsWith(".oppaku-dir") 
+                    ? targetFile.Substring(0, targetFile.Length - 11) 
+                    : targetFile + "_extracted";
+
+                Console.WriteLine($"[3/3] Unpacking folder to '{destDir}' using zero-space hole-punching...");
+                var unpackProgress = new Progress<long>(bytes =>
+                    PrintProgress(bytes, contentSize, $"{FormatBytes(bytes)} / {FormatBytes(contentSize)} unpacked"));
+                
+                FolderPacker.Unpack(targetFile, destDir, unpackProgress);
+                Console.WriteLine();
+            }
+
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("\nFinalisation Complete!");
-            Console.WriteLine($"File hash matches original source:\n{sourceHash}");
+            Console.WriteLine("\n✓ Finalisation Complete!");
+            Console.WriteLine($"  File is intact and matches original source.");
             Console.ResetColor();
         }
         catch (Exception ex)
         {
-            string progressPath = $"{targetFile}.progress";
+            Console.WriteLine(); // newline after progress bar
+
+            // Report missing parts from embedded metadata
+            var failState = rebuilder.GetProgress(targetFile);
             string extraInfo = "";
-            if (File.Exists(progressPath))
+            if (failState != null)
             {
-                var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-                if (progress != null)
-                {
-                    var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
-                    if (missing.Count > 0)
-                        extraInfo = $"\nMissing parts: {string.Join(", ", missing)}";
-                }
+                var missing = Enumerable.Range(0, failState.Total).Except(failState.Received).ToList();
+                if (missing.Count > 0)
+                    extraInfo = $"\nMissing parts: {string.Join(", ", missing)}";
             }
             throw new Exception($"{ex.Message}{extraInfo}");
         }

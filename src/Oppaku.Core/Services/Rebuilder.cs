@@ -12,29 +12,38 @@ public class RebuildProgress
 {
     public List<int> Received { get; set; } = new();
     public int Total { get; set; }
+    /// <summary>Actual content size in bytes — metadata zone starts at this offset.</summary>
+    public long ContentSize { get; set; }
 }
 
 public class Rebuilder
 {
     private const int BufferSize = 4 * 1024 * 1024; // 4 MB
     private const int ProgressIntervalMs = 80;
+
     public void InitialiseTarget(string destDir, ChunkMetadata metadata, string outputFileName)
     {
         if (!Directory.Exists(destDir))
             throw new OppakuException(ErrorCode.InvalidChunk, $"Destination directory not found: {destDir}");
 
         string targetFilePath = Path.Combine(destDir, outputFileName);
-        string progressPath = $"{targetFilePath}.progress";
 
         if (!File.Exists(targetFilePath))
         {
+            // Sparse file = content + metadata reserve zone
             SparseFileHelper.CreateSparseFile(targetFilePath, metadata.TotalFileSize);
         }
 
-        if (!File.Exists(progressPath))
+        // Write initial embedded progress if not already present
+        var existing = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, metadata.TotalFileSize);
+        if (existing == null)
         {
-            var progress = new RebuildProgress { Total = metadata.TotalChunks };
-            File.WriteAllText(progressPath, JsonSerializer.Serialize(progress));
+            var initial = new RebuildProgress
+            {
+                Total = metadata.TotalChunks,
+                ContentSize = metadata.TotalFileSize
+            };
+            SparseFileHelper.WriteEmbeddedProgress(targetFilePath, initial);
         }
     }
 
@@ -63,13 +72,22 @@ public class Rebuilder
             targetFilePath = targetLocation;
         }
 
-        string progressPath = $"{targetFilePath}.progress";
-
-        if (!File.Exists(targetFilePath) || !File.Exists(progressPath))
+        if (!File.Exists(targetFilePath))
         {
             InitialiseTarget(Path.GetDirectoryName(targetFilePath) ?? "", metadata, Path.GetFileName(targetFilePath));
         }
+        else
+        {
+            // Ensure progress zone exists for files created by older versions
+            var existing = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, metadata.TotalFileSize);
+            if (existing == null)
+            {
+                var initial = new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize };
+                SparseFileHelper.WriteEmbeddedProgress(targetFilePath, initial);
+            }
+        }
 
+        // Write chunk payload to correct offset
         using var sourcePayloadStream = new FileStream(chunkBinPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.SequentialScan);
         sourcePayloadStream.Position = payloadStartOffset;
 
@@ -100,23 +118,22 @@ public class Rebuilder
             }
         }
         progress?.Report(bytesWritten); // final
-        
+
         sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         string computedChecksum = $"sha256:{Convert.ToHexString(sha256.Hash!).ToLowerInvariant()}";
 
         if (computedChecksum != metadata.ChunkChecksum)
-        {
             throw new OppakuException(ErrorCode.ChecksumMismatch, $"Chunk checksum mismatch for part {metadata.ChunkIndex}");
-        }
 
-        var progressJson = File.ReadAllText(progressPath);
-        var rebuildState = JsonSerializer.Deserialize<RebuildProgress>(progressJson) ?? new RebuildProgress();
+        // Update embedded progress (read → mutate → write back)
+        var rebuildState = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, metadata.TotalFileSize)
+            ?? new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize };
 
         if (!rebuildState.Received.Contains(metadata.ChunkIndex))
         {
             rebuildState.Received.Add(metadata.ChunkIndex);
             rebuildState.Received.Sort();
-            File.WriteAllText(progressPath, JsonSerializer.Serialize(rebuildState));
+            SparseFileHelper.WriteEmbeddedProgress(targetFilePath, rebuildState);
         }
 
         return targetFilePath;
@@ -124,25 +141,60 @@ public class Rebuilder
 
     public void Finalise(string targetFilePath, string sourceFileHash, IProgress<long>? progress = null)
     {
-        string progressPath = $"{targetFilePath}.progress";
-
         if (!File.Exists(targetFilePath))
             throw new OppakuException(ErrorCode.InvalidChunk, "Target file does not exist");
-        if (!File.Exists(progressPath))
-            throw new OppakuException(ErrorCode.InvalidChunk, "Progress file does not exist");
 
-        var rebuildState = JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-        if (rebuildState == null || rebuildState.Received.Count < rebuildState.Total)
+        // We need the content size to know the metadata zone offset.
+        // Try reading it from embedded progress first.
+        // If the file is at exact content size (old format), fall back to file length.
+        long contentSize;
+        RebuildProgress? rebuildState = null;
+
+        // Probe: if file is larger than expected, metadata zone is at file.Length - MetadataReserve
+        // We try to read from file.Length - MetadataReserve
+        var fi = new FileInfo(targetFilePath);
+        long probeContentSize = fi.Length - SparseFileHelper.MetadataReserve;
+        if (probeContentSize > 0)
         {
-            throw new OppakuException(ErrorCode.InvalidChunk, "Cannot finalise: not all chunks have been received");
+            rebuildState = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, probeContentSize);
         }
 
-        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath, progress);
+        if (rebuildState != null)
+        {
+            contentSize = rebuildState.ContentSize;
+        }
+        else
+        {
+            // Fallback: file has no embedded metadata (shouldn't happen with new format)
+            contentSize = fi.Length;
+        }
+
+        if (rebuildState != null && rebuildState.Received.Count < rebuildState.Total)
+        {
+            var missing = Enumerable.Range(0, rebuildState.Total).Except(rebuildState.Received).ToList();
+            throw new OppakuException(ErrorCode.InvalidChunk,
+                $"Cannot finalise: missing parts {string.Join(", ", missing)}");
+        }
+
+        // Hash only the content portion [0, contentSize)
+        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath, contentSize, progress);
         if (rebuiltHash != sourceFileHash)
-        {
             throw new OppakuException(ErrorCode.ChecksumMismatch, "Final rebuilt file hash does not match original source hash");
-        }
 
-        File.Delete(progressPath);
+        // Strip metadata zone — truncate file to exact content size
+        using (var fs = new FileStream(targetFilePath, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            fs.SetLength(contentSize);
+        }
+    }
+
+    /// <summary>Returns current rebuild state from the file's embedded metadata, or null if none found.</summary>
+    public RebuildProgress? GetProgress(string targetFilePath)
+    {
+        if (!File.Exists(targetFilePath)) return null;
+        var fi = new FileInfo(targetFilePath);
+        long probeContentSize = fi.Length - SparseFileHelper.MetadataReserve;
+        if (probeContentSize <= 0) return null;
+        return SparseFileHelper.ReadEmbeddedProgress(targetFilePath, probeContentSize);
     }
 }

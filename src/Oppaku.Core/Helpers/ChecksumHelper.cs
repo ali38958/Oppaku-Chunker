@@ -10,6 +10,9 @@ public static class ChecksumHelper
     private const int ProgressIntervalMs = 80;       // max one UI update per 80ms
 
     public static string ComputeFileHash(string path, IProgress<long>? progress = null)
+        => ComputeFileHash(path, long.MaxValue, progress);
+
+    public static string ComputeFileHash(string path, long maxBytes, IProgress<long>? progress = null)
     {
         using var sha256 = SHA256.Create();
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.SequentialScan);
@@ -19,7 +22,8 @@ public static class ChecksumHelper
         int bytesRead;
         var sw = Stopwatch.StartNew();
 
-        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        while (totalRead < maxBytes &&
+               (bytesRead = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, maxBytes - totalRead))) > 0)
         {
             sha256.TransformBlock(buffer, 0, bytesRead, null, 0);
             totalRead += bytesRead;

@@ -170,18 +170,18 @@ public partial class MainWindow : Window
             // Step 1 — zip if folder
             if (Directory.Exists(sourcePath))
             {
-                SetIndeterminate("Compressing Folder", "Zipping folder before chunking...");
-                Log("Source is a folder — compressing to temporary zip...");
+                SetIndeterminate("Packing Folder", "Packing folder into zero-space archive...");
+                Log("Source is a folder — packing to zero-space archive...");
 
                 await Task.Run(() =>
                 {
-                    string zipPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(sourcePath) + ".oppaku.zip");
-                    if (File.Exists(zipPath)) File.Delete(zipPath);
-                    ZipFile.CreateFromDirectory(sourcePath, zipPath, CompressionLevel.Fastest, false);
-                    _preparedSourcePath = zipPath;
+                    string packPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(sourcePath) + ".oppaku-dir");
+                    if (File.Exists(packPath)) File.Delete(packPath);
+                    FolderPacker.Pack(sourcePath, packPath);
+                    _preparedSourcePath = packPath;
                 });
 
-                Log($"Compression complete → {Path.GetFileName(_preparedSourcePath!)}");
+                Log($"Packing complete → {Path.GetFileName(_preparedSourcePath!)}");
             }
             else
             {
@@ -438,24 +438,35 @@ public partial class MainWindow : Window
 
             TxtRebuildOutput.Text = newTargetLoc;
             
-            string progressPath = $"{newTargetLoc}.progress";
-            if (File.Exists(progressPath))
+            var rebuildState = _rebuilder.GetProgress(newTargetLoc);
+            bool autoFinalise = false;
+            if (rebuildState != null)
             {
-                var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-                if (progress != null)
+                var missing = Enumerable.Range(0, rebuildState.Total).Except(rebuildState.Received).ToList();
+                Log($"Status: {rebuildState.Received.Count} / {rebuildState.Total} parts in file.");
+                if (missing.Count > 0)
                 {
-                    var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
-                    Log($"Status: {progress.Received.Count} / {progress.Total} parts in file.");
-                    if (missing.Count > 0)
-                        Log($"Missing parts: {string.Join(", ", missing)}");
-                    else
-                        Log("All parts inserted — ready to Finalise!");
+                    Log($"Missing parts: {string.Join(", ", missing)}");
+                }
+                else
+                {
+                    Log("All parts inserted!");
+                    autoFinalise = true;
                 }
             }
 
             SetProgress(chunkFiles.Length, chunkFiles.Length, "Insertion Complete",
                 $"{count} part(s) written ✓");
-            MessageBox.Show($"Successfully added {count} part(s).", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            if (autoFinalise)
+            {
+                Log("Auto-starting finalisation...");
+                BtnFinalise_Click(sender, e);
+            }
+            else
+            {
+                MessageBox.Show($"Successfully added {count} part(s).", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
         catch (Exception ex)
         {
@@ -502,10 +513,13 @@ public partial class MainWindow : Window
 
             Log($"Master hash: {sourceHash}");
 
-            var finalFi = new FileInfo(targetFile);
-            long finalSize = finalFi.Exists ? finalFi.Length : 0;
-            Log($"Verifying file hash ({FormatBytes(finalSize)})...");
-            SetProgress(0, finalSize, "Verifying Hash", $"0 B / {FormatBytes(finalSize)}");
+            // Get content size from embedded progress (excludes the 4KB metadata zone)
+            var embedState = _rebuilder.GetProgress(targetFile);
+            long contentSize = embedState?.ContentSize ?? (new FileInfo(targetFile).Length - Oppaku.Core.Services.SparseFileHelper.MetadataReserve);
+            long displaySize = Math.Max(contentSize, 0);
+
+            Log($"Verifying file hash ({FormatBytes(displaySize)})...");
+            SetProgress(0, displaySize, "Verifying Hash", $"0 B / {FormatBytes(displaySize)}");
 
             bool success = false;
             string errorMsg = "";
@@ -514,8 +528,8 @@ public partial class MainWindow : Window
             {
                 Dispatcher.InvokeAsync(() =>
                 {
-                    SetProgress(bytesHashed, finalSize, "Verifying Hash",
-                        $"{FormatBytes(bytesHashed)} / {FormatBytes(finalSize)} verified");
+                    SetProgress(bytesHashed, displaySize, "Verifying Hash",
+                        $"{FormatBytes(bytesHashed)} / {FormatBytes(displaySize)} verified");
                 });
             });
 
@@ -532,23 +546,40 @@ public partial class MainWindow : Window
             if (success)
             {
                 Log("✓ Hash matches — file is intact!");
-                SetProgress(finalSize, finalSize, "Finalisation Complete!", "File integrity verified ✓");
+                
+                if (FolderPacker.IsPackedFolder(targetFile))
+                {
+                    string destDir = targetFile.EndsWith(".oppaku-dir") 
+                        ? targetFile.Substring(0, targetFile.Length - 11) 
+                        : targetFile + "_extracted";
+                    
+                    SetProgress(0, displaySize, "Unpacking Folder", "Unpacking with zero-space hole-punching...");
+                    var unpackProgress = new Progress<long>(bytes =>
+                    {
+                        Dispatcher.InvokeAsync(() =>
+                        {
+                            SetProgress(bytes, displaySize, "Unpacking Folder",
+                                $"{FormatBytes(bytes)} / {FormatBytes(displaySize)} unpacked");
+                        });
+                    });
+
+                    await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, unpackProgress));
+                    Log($"✓ Extracted folder to {destDir}");
+                }
+
+                SetProgress(displaySize, displaySize, "Finalisation Complete!", "File integrity verified ✓");
                 MessageBox.Show("Rebuild successful! The file is completely intact.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
-                string progressPath = $"{targetFile}.progress";
-                if (File.Exists(progressPath))
-                {
-                    var progress = System.Text.Json.JsonSerializer.Deserialize<RebuildProgress>(File.ReadAllText(progressPath));
-                    if (progress != null)
-                    {
-                        var missing = Enumerable.Range(0, progress.Total).Except(progress.Received).ToList();
-                        if (missing.Count > 0)
-                            Log($"Missing parts: {string.Join(", ", missing)}");
-                    }
-                }
                 Log($"✗ Finalisation failed: {errorMsg}");
+                var failState = _rebuilder.GetProgress(targetFile);
+                if (failState != null)
+                {
+                    var missing = Enumerable.Range(0, failState.Total).Except(failState.Received).ToList();
+                    if (missing.Count > 0)
+                        Log($"Missing parts: {string.Join(", ", missing)}");
+                }
                 ClearProgress("Finalisation Failed");
             }
         }

@@ -1,0 +1,125 @@
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using Microsoft.Win32.SafeHandles;
+
+namespace Oppaku.Core.Services;
+
+public static class FolderPacker
+{
+    private const string Magic = "OPPAKDIR";
+
+    public static void Pack(string sourceDir, string outputPath, IProgress<long>? progress = null)
+    {
+        var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
+        
+        using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
+
+        // 1. Write Header
+        writer.Write(Magic);
+        writer.Write(files.Length);
+
+        long totalPayloadSize = 0;
+        foreach (var file in files)
+        {
+            string relPath = Path.GetRelativePath(sourceDir, file);
+            var fi = new FileInfo(file);
+            writer.Write(relPath);
+            writer.Write(fi.Length);
+            totalPayloadSize += fi.Length;
+        }
+
+        // 2. Write Payloads
+        byte[] buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
+        long totalWritten = 0;
+
+        foreach (var file in files)
+        {
+            using var sourceStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            int bytesRead;
+            while ((bytesRead = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                fs.Write(buffer, 0, bytesRead);
+                totalWritten += bytesRead;
+                progress?.Report(totalWritten);
+            }
+        }
+    }
+
+    public static bool IsPackedFolder(string filePath)
+    {
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
+            return reader.ReadString() == Magic;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void Unpack(string archivePath, string destDir, IProgress<long>? progress = null)
+    {
+        // To punch holes, we need a handle with Write access
+        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
+
+        string magic = reader.ReadString();
+        if (magic != Magic)
+            throw new InvalidDataException("Invalid folder archive format.");
+
+        int fileCount = reader.ReadInt32();
+        var fileEntries = new List<(string Path, long Size)>();
+
+        for (int i = 0; i < fileCount; i++)
+        {
+            fileEntries.Add((reader.ReadString(), reader.ReadInt64()));
+        }
+
+        long payloadOffset = fs.Position;
+        byte[] buffer = new byte[4 * 1024 * 1024];
+        long totalExtracted = 0;
+
+        foreach (var entry in fileEntries)
+        {
+            string targetPath = Path.Combine(destDir, entry.Path);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+
+            long bytesRemaining = entry.Size;
+            long fileStartOffset = fs.Position;
+
+            using (var destStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan))
+            {
+                while (bytesRemaining > 0)
+                {
+                    int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
+                    int bytesRead = fs.Read(buffer, 0, toRead);
+                    if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
+
+                    destStream.Write(buffer, 0, bytesRead);
+                    bytesRemaining -= bytesRead;
+                    totalExtracted += bytesRead;
+                    progress?.Report(totalExtracted);
+                }
+            }
+
+            // Punch hole in the archive to free disk space immediately
+            try
+            {
+                SparseFileHelper.SetZeroData(fs.SafeFileHandle, fileStartOffset, entry.Size);
+            }
+            catch 
+            {
+                // If hole-punching fails (e.g. not a sparse file, or FS doesn't support it), 
+                // we just continue. The file will be deleted at the end anyway.
+            }
+        }
+
+        // Close the file so we can delete it
+        fs.Close();
+        File.Delete(archivePath);
+    }
+}
