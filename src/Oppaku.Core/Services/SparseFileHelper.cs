@@ -17,7 +17,7 @@ public static class SparseFileHelper
     /// </summary>
     public const int MetadataReserve = 4096;
 
-    private const string MetadataMagic = "OPPAKU_PROGRESS_V2\0"; // fixed 19 bytes + null
+    private const string MetadataMagic = "OPPAKU_PROGRESS\0"; // fixed 19 bytes + null
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool DeviceIoControl(
