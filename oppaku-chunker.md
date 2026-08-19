@@ -1,14 +1,15 @@
-# Oppaku — File Chunker & Rebuilder
+# Oppaku — Advanced Archive & Chunker Utility
 
 > **Type:** DESKTOP / WPF GUI (C# .NET WPF App)
-> **Slug:** `oppaku-chunker`
-> **Created:** 2026-08-18
+> **Slug:** `oppaku-archive-tool`
+> **Created:** 2026-08-18 (Updated: V3 Vision)
 
 ---
 
 ## Goal
 
-Build a cross-PC file transfer utility that splits large files into small chunks (sized to fit on a USB drive), writes each chunk with a metadata sidecar, then reassembles them on the target machine using sparse-file allocation — requiring zero extra storage on either end.
+Evolve Oppaku from a standalone file splitter into a **full-fledged advanced archiving tool**. 
+While it will support standard archiving features (compression, encryption, password protection, file management), its **unique superpower** remains its zero-space, out-of-order, sparse-file chunking and rebuilding engine — allowing massive archives to be securely transferred across low-capacity drives and rebuilt seamlessly on the target machine without requiring 2x the disk space.
 
 ---
 
@@ -272,3 +273,24 @@ T3.x (Extractor)    T4.x (Rebuilder)   ← parallel after T2 done
 - `OpenFolderDialog` is available in WPF starting with .NET 8, avoiding the need for third-party folder pickers.
 - `.progress` sidecar file format: `{ "received": [0, 2], "total": 5 }` — simple and append-safe.
 - **Hash-first invariant:** `sourceFileHash` is always computed over the complete, unmodified source file **before** any chunk is extracted. This means you can re-verify the rebuild at any point — even years later — by hashing the rebuilt file against any surviving `.meta` file, without needing the original source.
+
+---
+
+## V3 Vision: The Full Archive Tool
+
+Moving forward, Oppaku is pivoting to become a comprehensive archiving solution. The core chunking technology is built; the next phases will introduce:
+
+1. **Encryption & Security:**
+   - AES-256 encryption for the `.oppaku-dir` custom archive format.
+   - Password protection for archives and individual chunks.
+   - Encrypted metadata headers to hide original file names and folder structures.
+
+2. **Compression Integration:**
+   - While `FolderPacker` currently stores files uncompressed to allow exact byte-offset hole-punching, future versions will explore streamable compression algorithms (like LZ4 or Zstd) that still allow for deterministic extraction and space reclamation.
+
+3. **Archive Management:**
+   - View, extract, or add single files to an `.oppaku-dir` archive without unpacking the whole thing.
+   - Archive integrity checking and repair modes.
+   
+4. **Cloud & Network Hooks:**
+   - Instead of just USB drives, stream out-of-order chunks directly over a local network or via cloud storage, rebuilding the file locally on the fly using the sparse-file engine.
