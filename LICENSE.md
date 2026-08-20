@@ -1,20 +1,79 @@
-PROPRIETARY AND CONFIDENTIAL SOFTWARE LICENSE AGREEMENT
+<div align="center">
 
-Copyright © 2026 Muhammad Ali. All Rights Reserved.
+# ⚖️ Oppaku Software License
 
-1. SCOPE OF LICENSE
-This software, including all accompanying documentation, source code, and binaries (collectively referred to as the "Software"), is the proprietary property of Muhammad Ali. The Software is protected by copyright laws and international copyright treaties, as well as other intellectual property laws and treaties. 
+**Copyright © 2026 Muhammad Ali. All Rights Reserved.**
 
-2. RESTRICTIONS
-You are expressly prohibited from:
-(a) Copying, reproducing, or distributing the Software, in whole or in part, in any form or medium.
-(b) Modifying, altering, reverse-engineering, decompiling, or creating derivative works based upon the Software.
-(c) Selling, renting, leasing, sublicensing, or commercially exploiting the Software.
-(d) Removing or altering any copyright, trademark, or other proprietary notices contained within the Software.
-(e) Claiming ownership, authorship, or original creation of the Software or any of its constituent parts.
+*Please read this carefully. It's short, clear, and exists to protect your experience with this software.*
 
-3. UNAUTHORIZED USE
-Any unauthorized use, reproduction, or distribution of this Software without the explicit, prior written consent of the copyright holder is strictly prohibited and constitutes a direct violation of international intellectual property laws. Violators will be prosecuted to the maximum extent permitted by applicable law.
+---
 
-4. DISCLAIMER OF WARRANTIES
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg?style=flat-square)](https://github.com/ali38958/Oppaku-Chunker)
+[![Author: Muhammad Ali](https://img.shields.io/badge/Author-Muhammad%20Ali-blue?style=flat-square)](https://github.com/ali38958)
+
+</div>
+
+---
+
+## 🔍 TL;DR — The Short Version
+
+> This software was built by Muhammad Ali. You're welcome to look at it and learn from it.  
+> But you **may not** copy it, sell it, or present it as your own work. Ever.
+
+---
+
+## 📜 The Full Agreement
+
+### 1. Ownership
+
+This software, its source code, documentation, and all associated files (the **"Software"**) are the sole intellectual property of **Muhammad Ali**. All rights are reserved under applicable copyright laws and international intellectual property treaties.
+
+No part of this Software is in the public domain. No rights are transferred to you by viewing, downloading, or interacting with this repository.
+
+---
+
+### 2. What You MAY Do
+
+- ✅ **Study** — Read and learn from the source code for personal educational purposes.
+- ✅ **Fork on GitHub** — GitHub's Terms of Service allow you to fork public repositories. A fork does not grant you a license to the code.
+- ✅ **Reference** — Cite or link to this project with proper attribution to the original author.
+
+---
+
+### 3. What You MAY NOT Do
+
+The following actions are **strictly prohibited** without explicit, prior written permission from the author:
+
+- ❌ **Copy or Reproduce** — Duplicating the source code or binaries in any form or medium.
+- ❌ **Distribute** — Sharing, publishing, or redistributing the Software or any derivative thereof.
+- ❌ **Sell or Commercialize** — Using this Software, in whole or in part, in any commercial product or service.
+- ❌ **Claim Authorship** — Presenting this work as your own creation or omitting attribution to the original author.
+- ❌ **Modify & Redistribute** — Creating and distributing derivative works based on this Software.
+- ❌ **Remove Notices** — Stripping, altering, or concealing any copyright, trademark, or license notices.
+
+---
+
+### 4. Enforcement
+
+Violations of this license constitute **copyright infringement** under international law, including but not limited to the **Berne Convention** and applicable national copyright statutes. The author reserves all rights to pursue legal action, including damages and injunctive relief, against any party found in violation.
+
+If you believe you have found an infringement of this software online, please report it via:
+📧 [GitHub Issues](https://github.com/ali38958/Oppaku-Chunker/issues) or contact the author directly through their GitHub profile.
+
+---
+
+### 5. No Warranty
+
+The Software is provided **"as is"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+In no event shall the author be liable for any claim, damages, or other liability arising from the use of or inability to use this Software.
+
+---
+
+<div align="center">
+
+*Built with care. Protected by law.*
+
+**Muhammad Ali** — [GitHub Profile](https://github.com/ali38958)
+
+</div>
