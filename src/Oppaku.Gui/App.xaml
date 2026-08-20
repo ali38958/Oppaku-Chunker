@@ -5,11 +5,11 @@
     <Application.Resources>
 
         <!-- ═══ DESIGN TOKENS (Restored V2 Colors) ══════════════════════════ -->
-        <SolidColorBrush x:Key="BgBase"        Color="#F5E0D0"/>
+        <SolidColorBrush x:Key="BgBase"        Color="#FDF4EF"/>
         <SolidColorBrush x:Key="BgSurface"     Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="BgPanel"       Color="#EADDD1"/>
-        <SolidColorBrush x:Key="BgToolbar"     Color="#F0D7C4"/>
-        <SolidColorBrush x:Key="BgHover"       Color="#DBC4B6"/>
+        <SolidColorBrush x:Key="BgPanel"       Color="#F5EBE4"/>
+        <SolidColorBrush x:Key="BgToolbar"     Color="#E8C9B0"/>
+        <SolidColorBrush x:Key="BgHover"       Color="#EDE0D6"/>
         <SolidColorBrush x:Key="BgSelected"    Color="#9E533A"/>
         <SolidColorBrush x:Key="BgInput"       Color="#FFFFFF"/>
         <SolidColorBrush x:Key="Accent"        Color="#B5654A"/>
@@ -18,7 +18,7 @@
         <SolidColorBrush x:Key="TxtPrimary"    Color="#212529"/>
         <SolidColorBrush x:Key="TxtSecondary"  Color="#495057"/>
         <SolidColorBrush x:Key="TxtMuted"      Color="#6C757D"/>
-        <SolidColorBrush x:Key="Border"        Color="#DBC4B6"/>
+        <SolidColorBrush x:Key="Border"        Color="#E8D8CC"/>
         <SolidColorBrush x:Key="BorderAccent"  Color="#B5654A"/>
         <SolidColorBrush x:Key="Success"       Color="#198754"/>
         <SolidColorBrush x:Key="Warning"       Color="#FFC107"/>
@@ -32,34 +32,44 @@
             <Setter Property="FontSize"     Value="13"/>
         </Style>
 
-        <!-- ═══ TOOLBAR BUTTON ═══════════════════════════════════════════════ -->
+        <!-- ═══ TOOLBAR BUTTON (Solid pill) ══════════════════════════════ -->
         <Style x:Key="ToolbarBtn" TargetType="Button">
-            <Setter Property="Background"       Value="Transparent"/>
-            <Setter Property="Foreground"       Value="{StaticResource TxtPrimary}"/>
-            <Setter Property="BorderThickness"  Value="0"/>
-            <Setter Property="Padding"          Value="12,7"/>
-            <Setter Property="MinWidth"         Value="90"/>
-            <Setter Property="FontSize"         Value="12"/>
-            <Setter Property="FontWeight"       Value="SemiBold"/>
-            <Setter Property="Cursor"           Value="Hand"/>
+            <Setter Property="Background"      Value="#FFFAF6"/>
+            <Setter Property="Foreground"      Value="{StaticResource TxtPrimary}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush"     Value="#D4B49A"/>
+            <Setter Property="Padding"         Value="14,0"/>
+            <Setter Property="Height"          Value="34"/>
+            <Setter Property="MinWidth"        Value="116"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
-                                CornerRadius="4"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="Background"   Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush"  Value="{StaticResource AccentHover}"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMuted}"/>
+                                <Setter TargetName="Bd" Property="Background"   Value="{StaticResource AccentHover}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush"  Value="{StaticResource AccentHover}"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="{StaticResource TxtMuted}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgPanel}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

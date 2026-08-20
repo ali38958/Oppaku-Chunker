@@ -19,49 +19,63 @@
         ═══════════════════════════════════════════════════════════════ -->
         <Border Grid.Row="0"
                 Background="{StaticResource BgToolbar}"
-                BorderBrush="{StaticResource Border}"
-                BorderThickness="0,0,0,1"
-                Padding="8,6">
-            <StackPanel Orientation="Horizontal">
+                BorderBrush="#C9A888"
+                BorderThickness="0,0,0,2"
+                Height="56">
+            <StackPanel Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Margin="12,0">
 
-                <!-- CHUNKING GROUP -->
-                <Button x:Name="BtnToolExtractChunks"
-                        Style="{StaticResource ToolbarBtn}"
-                        Content="Extract Chunks"
-                        ToolTip="Split a file or folder into chunks for transport"
-                        Click="BtnToolExtractChunks_Click"/>
+                <!-- GROUP 1: Chunking -->
+                <Border Background="#D9B89A"
+                        CornerRadius="10"
+                        Padding="4,4"
+                        Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnToolExtractChunks"
+                                Style="{StaticResource ToolbarBtn}"
+                                Content="Extract Chunks"
+                                ToolTip="Split a file or folder into chunks for transport"
+                                Margin="0,0,4,0"
+                                Click="BtnToolExtractChunks_Click"/>
+                        <Button x:Name="BtnToolRebuild"
+                                Style="{StaticResource ToolbarBtn}"
+                                Content="Insert Chunks"
+                                ToolTip="Insert .oppk chunk files into a sparse rebuild file"
+                                Click="BtnToolRebuild_Click"/>
+                    </StackPanel>
+                </Border>
 
-                <Button x:Name="BtnToolRebuild"
-                        Style="{StaticResource ToolbarBtn}"
-                        Content="Insert Chunks"
-                        ToolTip="Insert .oppk chunk files into a sparse rebuild file"
-                        Click="BtnToolRebuild_Click"/>
+                <!-- GROUP 2: Archive -->
+                <Border Background="#D9B89A"
+                        CornerRadius="10"
+                        Padding="4,4"
+                        Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnToolCreateArchive"
+                                Style="{StaticResource ToolbarBtn}"
+                                Content="Create Archive"
+                                ToolTip="Pack a file or folder into a secure .oppaku-archive"
+                                Margin="0,0,4,0"
+                                Click="BtnToolCreateArchive_Click"/>
+                        <Button x:Name="BtnToolExtractArchive"
+                                Style="{StaticResource ToolbarBtn}"
+                                Content="Extract Archive"
+                                ToolTip="Extract a .oppaku-archive with zero-space hole-punching"
+                                Click="BtnToolExtractArchive_Click"/>
+                    </StackPanel>
+                </Border>
 
-                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
-                           Width="1" Height="32" Margin="6,0"/>
-
-                <!-- ARCHIVE GROUP -->
-                <Button x:Name="BtnToolCreateArchive"
-                        Style="{StaticResource ToolbarBtn}"
-                        Content="Create Archive"
-                        ToolTip="Pack a file or folder into a secure .oppaku-archive"
-                        Click="BtnToolCreateArchive_Click"/>
-
-                <Button x:Name="BtnToolExtractArchive"
-                        Style="{StaticResource ToolbarBtn}"
-                        Content="Extract Archive"
-                        ToolTip="Extract a .oppaku-archive with zero-space hole-punching"
-                        Click="BtnToolExtractArchive_Click"/>
-
-                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
-                           Width="1" Height="32" Margin="6,0"/>
-
-                <!-- TOOLS GROUP -->
-                <Button x:Name="BtnToolHashCheck"
-                        Style="{StaticResource ToolbarBtn}"
-                        Content="Hash Check"
-                        ToolTip="Verify integrity of a rebuilt file"
-                        Click="BtnToolHashCheck_Click"/>
+                <!-- GROUP 3: Tools -->
+                <Border Background="#D9B89A"
+                        CornerRadius="10"
+                        Padding="4,4">
+                    <Button x:Name="BtnToolHashCheck"
+                            Style="{StaticResource ToolbarBtn}"
+                            Content="Hash Check"
+                            ToolTip="Verify integrity of a rebuilt file"
+                            Click="BtnToolHashCheck_Click"/>
+                </Border>
 
             </StackPanel>
         </Border>

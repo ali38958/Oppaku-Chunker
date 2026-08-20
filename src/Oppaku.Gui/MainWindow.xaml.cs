@@ -321,6 +321,21 @@ public partial class MainWindow : Window
     private void LvFiles_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateStatus();
+
+        // If the Insert Chunks panel is open, mirror the selection of .oppk files exactly
+        if (_activeRebuildFilesTxt != null)
+        {
+            var oppkFiles = LvFiles.SelectedItems
+                .Cast<FsItem>()
+                .Where(f => !f.IsDirectory && f.FullPath.EndsWith(".oppk", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.FullPath)
+                .ToList();
+                
+            Log($"Debug: SelectionChanged fired. Total selected: {LvFiles.SelectedItems.Count}, oppk found: {oppkFiles.Count}");
+
+            _activeRebuildFilesTxt.Text = string.Join(";", oppkFiles);
+            Log($"Debug: Updated textbox to: {_activeRebuildFilesTxt.Text}");
+        }
     }
 
     private void MenuOpenInExplorer_Click(object sender, RoutedEventArgs e)
@@ -331,12 +346,15 @@ public partial class MainWindow : Window
             Process.Start("explorer.exe", $"/select,\"{path}\"");
     }
 
+    // Tracks the files TextBox inside the active Insert Chunks dialog, if open
+    private TextBox? _activeRebuildFilesTxt;
+
     private void OpenFile(string path)
     {
-        if (path.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase) || 
+        if (path.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".oppk", StringComparison.OrdinalIgnoreCase))
         {
-            Log($"Selected archive: {path}. Use toolbar actions to process.");
+            Log($"Selected: {Path.GetFileName(path)}");
         }
         else
         {
@@ -422,6 +440,7 @@ public partial class MainWindow : Window
     private void CloseDialog()
     {
         ActionPanel.Content = null;
+        _activeRebuildFilesTxt = null;
     }
 
     private (TextBox TextBox, FrameworkElement Container) CreateBrowseField(string defaultPath, bool isFile = false, string filter = "")
@@ -633,13 +652,20 @@ public partial class MainWindow : Window
     private void BtnToolRebuild_Click(object sender, RoutedEventArgs e)
     {
         var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppk")).ToList();
-        
+        OpenRebuildDialog(selected.Select(f => f.FullPath).ToArray());
+    }
+
+    private void OpenRebuildDialog(string[] preloadedFiles)
+    {
         var sp = new StackPanel { };
         sp.Children.Add(new TextBlock { Text = "Insert Chunks", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
         
         sp.Children.Add(new TextBlock { Text = "Selected .oppk files:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
-        var txtFiles = new TextBox { Text = string.Join(";", selected.Select(f => f.FullPath)), Margin = new Thickness(0,0,0,10) };
+        var txtFiles = new TextBox { Text = string.Join(";", preloadedFiles), Margin = new Thickness(0,0,0,10) };
         sp.Children.Add(txtFiles);
+        
+        // Register the active TextBox so clicking more .oppk files appends here
+        _activeRebuildFilesTxt = txtFiles;
         
         sp.Children.Add(new TextBlock { Text = "Target Rebuild File / Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
         var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, true, "All Files (*.*)|*.*");
