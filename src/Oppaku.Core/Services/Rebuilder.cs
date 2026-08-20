@@ -12,8 +12,8 @@ public class RebuildProgress
 {
     public List<int> Received { get; set; } = new();
     public int Total { get; set; }
-    /// <summary>Actual content size in bytes — metadata zone starts at this offset.</summary>
     public long ContentSize { get; set; }
+    public string ExpectedHash { get; set; } = "";
 }
 
 public class Rebuilder
@@ -41,7 +41,8 @@ public class Rebuilder
             var initial = new RebuildProgress
             {
                 Total = metadata.TotalChunks,
-                ContentSize = metadata.TotalFileSize
+                ContentSize = metadata.TotalFileSize,
+                ExpectedHash = metadata.SourceFileHash
             };
             SparseFileHelper.WriteEmbeddedProgress(targetFilePath, initial);
         }
@@ -82,7 +83,7 @@ public class Rebuilder
             var existing = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, metadata.TotalFileSize);
             if (existing == null)
             {
-                var initial = new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize };
+                var initial = new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize, ExpectedHash = metadata.SourceFileHash };
                 SparseFileHelper.WriteEmbeddedProgress(targetFilePath, initial);
             }
         }
@@ -127,7 +128,7 @@ public class Rebuilder
 
         // Update embedded progress (read → mutate → write back)
         var rebuildState = SparseFileHelper.ReadEmbeddedProgress(targetFilePath, metadata.TotalFileSize)
-            ?? new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize };
+            ?? new RebuildProgress { Total = metadata.TotalChunks, ContentSize = metadata.TotalFileSize, ExpectedHash = metadata.SourceFileHash };
 
         if (!rebuildState.Received.Contains(metadata.ChunkIndex))
         {

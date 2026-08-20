@@ -63,8 +63,7 @@ public static class FolderPacker
 
     public static void Unpack(string archivePath, string destDir, IProgress<long>? progress = null)
     {
-        // To punch holes, we need a handle with Write access
-        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
 
         string magic = reader.ReadString();
@@ -106,20 +105,9 @@ public static class FolderPacker
                 }
             }
 
-            // Punch hole in the archive to free disk space immediately
-            try
-            {
-                SparseFileHelper.SetZeroData(fs.SafeFileHandle, fileStartOffset, entry.Size);
-            }
-            catch 
-            {
-                // If hole-punching fails (e.g. not a sparse file, or FS doesn't support it), 
-                // we just continue. The file will be deleted at the end anyway.
-            }
         }
 
-        // Close the file so we can delete it
+        // Close the file so we can read it again later if needed
         fs.Close();
-        File.Delete(archivePath);
     }
 }

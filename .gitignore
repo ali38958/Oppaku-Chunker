@@ -42,3 +42,4 @@ local.properties
 # Extracted/Publish folders
 publish/
 *.publish/
+*.dat

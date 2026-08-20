@@ -15,26 +15,30 @@ public class Extractor
     private string? _cachedSourceHash;
     private string? _cachedSourcePath;
 
-    public string ComputeSourceFileHash(string sourcePath, IProgress<long>? progress = null)
+    public string ComputeSourceStreamHash(Stream sourceStream, IProgress<long>? progress = null)
     {
-        if (!File.Exists(sourcePath))
-            throw new OppakuException(ErrorCode.InvalidChunk, $"Source file not found: {sourcePath}");
+        if (sourceStream == null || !sourceStream.CanRead)
+            throw new OppakuException(ErrorCode.InvalidChunk, $"Source stream is invalid or unreadable");
 
-        if (_cachedSourcePath == sourcePath && !string.IsNullOrEmpty(_cachedSourceHash))
+        if (sourceStream is FileStream fs)
         {
-            return _cachedSourceHash;
+            if (_cachedSourcePath == fs.Name && !string.IsNullOrEmpty(_cachedSourceHash))
+            {
+                return _cachedSourceHash;
+            }
+            _cachedSourcePath = fs.Name;
         }
 
-        _cachedSourceHash = ChecksumHelper.ComputeFileHash(sourcePath, progress);
-        _cachedSourcePath = sourcePath;
+        sourceStream.Position = 0;
+        _cachedSourceHash = ChecksumHelper.ComputeStreamHash(sourceStream, progress);
         
         return _cachedSourceHash;
     }
 
-    public void ExtractChunk(string sourcePath, int chunkIndex, long chunkSize, string outputDir, string sourceFileHash, IProgress<long>? progress = null)
+    public void ExtractChunk(Stream sourceStream, string fileName, int chunkIndex, long chunkSize, string outputDir, string sourceFileHash, IProgress<long>? progress = null)
     {
-        if (!File.Exists(sourcePath))
-            throw new OppakuException(ErrorCode.InvalidChunk, $"Source file not found: {sourcePath}");
+        if (sourceStream == null || !sourceStream.CanRead)
+            throw new OppakuException(ErrorCode.InvalidChunk, $"Source stream is invalid or unreadable");
         if (chunkIndex < 0)
             throw new OppakuException(ErrorCode.InvalidChunk, "Chunk index cannot be negative");
         if (chunkSize <= 0)
@@ -42,28 +46,28 @@ public class Extractor
         if (!Directory.Exists(outputDir))
             throw new OppakuException(ErrorCode.InvalidChunk, $"Output directory not found: {outputDir}");
 
-        var fileInfo = new FileInfo(sourcePath);
         long byteOffset = chunkIndex * chunkSize;
         
-        if (byteOffset >= fileInfo.Length)
+        if (byteOffset >= sourceStream.Length)
             throw new OppakuException(ErrorCode.InvalidChunk, "Chunk offset is past the end of the file");
 
-        long actualChunkSize = Math.Min(chunkSize, fileInfo.Length - byteOffset);
+        long actualChunkSize = Math.Min(chunkSize, sourceStream.Length - byteOffset);
         
-        string chunkFileName = $"{fileInfo.Name}.part{chunkIndex}.oppk";
+        string chunkFileName = $"{fileName}.part{chunkIndex}.oppk";
         string chunkPath = Path.Combine(outputDir, chunkFileName);
 
-        using var handle = File.OpenHandle(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+        sourceStream.Position = byteOffset;
+        
         using var outStream = new FileStream(chunkPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize);
         using var writer = new BinaryWriter(outStream, System.Text.Encoding.UTF8, leaveOpen: true);
 
         var dummyChecksum = "sha256:" + new string('0', 64);
         var metadata = new ChunkMetadata
         {
-            FileName = fileInfo.Name,
-            TotalFileSize = fileInfo.Length,
+            FileName = fileName,
+            TotalFileSize = sourceStream.Length,
             ChunkSize = chunkSize,
-            TotalChunks = (int)Math.Ceiling((double)fileInfo.Length / chunkSize),
+            TotalChunks = (int)Math.Ceiling((double)sourceStream.Length / chunkSize),
             ChunkIndex = chunkIndex,
             ByteOffset = byteOffset,
             ActualChunkSize = actualChunkSize,
@@ -80,19 +84,17 @@ public class Extractor
 
         byte[] buffer = new byte[BufferSize];
         long bytesRemaining = actualChunkSize;
-        long currentOffset = byteOffset;
         long bytesWritten = 0;
         var sw = Stopwatch.StartNew();
 
         while (bytesRemaining > 0)
         {
             int bytesToRead = (int)Math.Min(buffer.Length, bytesRemaining);
-            int bytesRead = RandomAccess.Read(handle, buffer.AsSpan(0, bytesToRead), currentOffset);
+            int bytesRead = sourceStream.Read(buffer, 0, bytesToRead);
             
             if (bytesRead == 0) break;
 
             cryptoStream.Write(buffer, 0, bytesRead);
-            currentOffset += bytesRead;
             bytesRemaining -= bytesRead;
             bytesWritten += bytesRead;
 

@@ -40,6 +40,31 @@ public static class ChecksumHelper
         return FormatHash(sha256.Hash!);
     }
 
+    public static string ComputeStreamHash(Stream stream, IProgress<long>? progress = null)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] buffer = new byte[BufferSize];
+        long totalRead = 0;
+        int bytesRead;
+        var sw = Stopwatch.StartNew();
+
+        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            sha256.TransformBlock(buffer, 0, bytesRead, null, 0);
+            totalRead += bytesRead;
+
+            if (progress != null && sw.ElapsedMilliseconds >= ProgressIntervalMs)
+            {
+                progress.Report(totalRead);
+                sw.Restart();
+            }
+        }
+
+        sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        progress?.Report(totalRead);
+        return FormatHash(sha256.Hash!);
+    }
+
     public static string ComputeSpanChecksum(ReadOnlySpan<byte> data)
     {
         var hashBytes = SHA256.HashData(data);

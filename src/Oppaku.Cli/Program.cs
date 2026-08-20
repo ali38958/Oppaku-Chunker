@@ -34,6 +34,12 @@ class Program
                 case "finalize":
                     Finalise(args);
                     break;
+                case "archive":
+                    Archive(args);
+                    break;
+                case "unarchive":
+                    Unarchive(args);
+                    break;
                 default:
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Unknown command: {command}");
@@ -53,10 +59,18 @@ class Program
     static void ShowHelp()
     {
         Console.WriteLine(@"
-Oppaku - File Chunker CLI
-=========================
+Oppaku - File Chunker & Archiver CLI
+====================================
 Commands:
-  extract   Extract parts from a source file or folder.
+  archive   Create a zero-space compressed solid archive.
+            Usage: oppaku archive --source <path> --dest <file> [--password <pwd>] [--compression <none|normal|high|extreme>]
+            Example: oppaku archive --source .\folder --dest .\backup.oppaku-archive --compression extreme
+
+  unarchive Extract a solid archive.
+            Usage: oppaku unarchive --source <archive> --dest <folder> [--password <pwd>] [--overwrite]
+            Example: oppaku unarchive --source .\backup.oppaku-archive --dest .\output
+
+  extract   Extract parts from a source file or folder (virtual stream chunking).
             Usage: oppaku extract --source <path> --dest <folder> --size <num> --unit <KB|MB|GB> --parts <all | 0,1,2>
             Example: oppaku extract --source .\myfolder --dest .\output --size 100 --unit MB --parts all
 
@@ -119,65 +133,75 @@ Commands:
         };
 
         Console.WriteLine($"[1/3] Preparing source: {source}");
-        string preparedPath = source;
+        
+        Stream currentStream;
         if (Directory.Exists(source))
         {
-            preparedPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(source) + ".oppaku-dir");
-            if (File.Exists(preparedPath)) File.Delete(preparedPath);
-            FolderPacker.Pack(source, preparedPath);
-            Console.WriteLine("      Packed folder to zero-space compatible archive.");
-        }
-
-        var fi = new FileInfo(preparedPath);
-        Console.WriteLine($"[2/3] Computing SHA-256 hash of {FormatBytes(fi.Length)}...");
-
-        var extractor = new Extractor();
-        string hash = "";
-
-        var hashProgress = new Progress<long>(bytesRead =>
-            PrintProgress(bytesRead, fi.Length, $"{FormatBytes(bytesRead)} / {FormatBytes(fi.Length)} hashed"));
-
-        hash = extractor.ComputeSourceFileHash(preparedPath, hashProgress);
-        Console.WriteLine(); // newline after progress bar
-
-        int totalChunks = (int)Math.Ceiling((double)fi.Length / chunkSizeBytes);
-        Console.WriteLine($"      Hash : {hash}");
-        Console.WriteLine($"      Parts: {totalChunks} × {sizeValue} {unitStr}");
-
-        List<int> partsToExtract = new();
-        if (partsStr.Equals("all", StringComparison.OrdinalIgnoreCase))
-        {
-            partsToExtract.AddRange(Enumerable.Range(0, totalChunks));
+            Console.WriteLine("      Building virtual stream for folder...");
+            currentStream = new VirtualFolderStream(source);
         }
         else
         {
-            partsToExtract = partsStr.Split(',').Select(s => int.Parse(s.Trim())).ToList();
+            currentStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read);
         }
 
-        Console.WriteLine($"[3/3] Extracting {partsToExtract.Count} part(s) to '{dest}'...");
-        Directory.CreateDirectory(dest);
-        
-        int count = 0;
-        foreach (var partIndex in partsToExtract)
+        try
         {
-            if (partIndex < 0 || partIndex >= totalChunks)
-                throw new ArgumentException($"Part index {partIndex} is out of bounds (0 to {totalChunks - 1}).");
+            Console.WriteLine($"[2/3] Computing SHA-256 hash of {FormatBytes(currentStream.Length)}...");
+            var extractor = new Extractor();
+            string hash = "";
 
-            long partSize = Math.Min(chunkSizeBytes, fi.Length - (long)partIndex * chunkSizeBytes);
-            string chunkFileName = $"{Path.GetFileName(preparedPath)}.part{partIndex}.oppk";
-            Console.WriteLine($"  → Part {partIndex}: {FormatBytes(partSize)}");
+            var hashProgress = new Progress<long>(bytesRead =>
+                PrintProgress(bytesRead, currentStream.Length, $"{FormatBytes(bytesRead)} / {FormatBytes(currentStream.Length)} hashed"));
 
-            var partProgress = new Progress<long>(bytesWritten =>
-                PrintProgress(bytesWritten, partSize, $"{FormatBytes(bytesWritten)} / {FormatBytes(partSize)} written"));
+            hash = extractor.ComputeSourceStreamHash(currentStream, hashProgress);
+            Console.WriteLine(); // newline after progress bar
 
-            extractor.ExtractChunk(preparedPath, partIndex, chunkSizeBytes, dest, hash, partProgress);
-            Console.WriteLine($"\r  ✓ Part {partIndex} written → {chunkFileName}              ");
-            count++;
+            long streamLength = currentStream.Length;
+            int totalChunks = (int)Math.Ceiling((double)streamLength / chunkSizeBytes);
+            Console.WriteLine($"      Hash : {hash}");
+            Console.WriteLine($"      Parts: {totalChunks} × {sizeValue} {unitStr}");
+
+            List<int> partsToExtract = new();
+            if (partsStr.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                partsToExtract.AddRange(Enumerable.Range(0, totalChunks));
+            }
+            else
+            {
+                partsToExtract = partsStr.Split(',').Select(s => int.Parse(s.Trim())).ToList();
+            }
+
+            Console.WriteLine($"[3/3] Extracting {partsToExtract.Count} part(s) to '{dest}'...");
+            Directory.CreateDirectory(dest);
+            
+            int count = 0;
+            string fileName = Path.GetFileName(source);
+            foreach (var partIndex in partsToExtract)
+            {
+                if (partIndex < 0 || partIndex >= totalChunks)
+                    throw new ArgumentException($"Part index {partIndex} is out of bounds (0 to {totalChunks - 1}).");
+
+                long partSize = Math.Min(chunkSizeBytes, streamLength - (long)partIndex * chunkSizeBytes);
+                string chunkFileName = $"{fileName}.part{partIndex}.oppk";
+                Console.WriteLine($"  → Part {partIndex}: {FormatBytes(partSize)}");
+
+                var partProgress = new Progress<long>(bytesWritten =>
+                    PrintProgress(bytesWritten, partSize, $"{FormatBytes(bytesWritten)} / {FormatBytes(partSize)} written"));
+
+                extractor.ExtractChunk(currentStream, fileName, partIndex, chunkSizeBytes, dest, hash, partProgress);
+                Console.WriteLine($"\r  ✓ Part {partIndex} written → {chunkFileName}              ");
+                count++;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\nSuccessfully extracted {count} part(s) to '{dest}'");
+            Console.ResetColor();
         }
-
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\nSuccessfully extracted {count} part(s) to '{dest}'");
-        Console.ResetColor();
+        finally
+        {
+            currentStream.Dispose();
+        }
     }
 
     static void Rebuild(string[] args)
@@ -313,5 +337,66 @@ Commands:
             }
             throw new Exception($"{ex.Message}{extraInfo}");
         }
+    }
+
+    static void Archive(string[] args)
+    {
+        string source = GetArg(args, "--source", true);
+        string dest = GetArg(args, "--dest", true);
+        string? password = GetArg(args, "--password", false);
+        string compStr = GetArg(args, "--compression", false)?.ToLowerInvariant() ?? "normal";
+
+        OppakuCompressionLevel compLevel = compStr switch
+        {
+            "none" => OppakuCompressionLevel.None,
+            "normal" => OppakuCompressionLevel.Normal,
+            "high" => OppakuCompressionLevel.High,
+            "extreme" => OppakuCompressionLevel.Extreme,
+            _ => throw new ArgumentException("Compression must be none, normal, high, or extreme.")
+        };
+
+        long size = Directory.Exists(source) ? GetDirectorySize(source) : new FileInfo(source).Length;
+        Console.WriteLine($"[1/1] Archiving {FormatBytes(size)}...");
+
+        var progress = new Progress<long>(bytesWritten =>
+            PrintProgress(bytesWritten, size, $"{FormatBytes(bytesWritten)} / {FormatBytes(size)} archived"));
+
+        ArchivePacker.Pack(source, dest, password, compLevel, progress);
+        Console.WriteLine($"\n✓ Archive created at: {dest}");
+    }
+
+    static void Unarchive(string[] args)
+    {
+        string source = GetArg(args, "--source", true);
+        string dest = GetArg(args, "--dest", true);
+        string? password = GetArg(args, "--password", false);
+        bool forceOverwrite = args.Contains("--overwrite", StringComparer.OrdinalIgnoreCase);
+
+        var fi = new FileInfo(source);
+        Console.WriteLine($"[1/1] Extracting {FormatBytes(fi.Length)}...");
+
+        var progress = new Progress<long>(bytesRead =>
+            PrintProgress(bytesRead, fi.Length, $"{FormatBytes(bytesRead)} / {FormatBytes(fi.Length)} read"));
+
+        ArchivePacker.Unpack(source, dest, password, (path) =>
+        {
+            if (forceOverwrite) return true;
+            Console.WriteLine();
+            Console.Write($"\n[WARNING] File already exists: {path}\nOverwrite? [y/N]: ");
+            var key = Console.ReadLine();
+            return key?.Trim().ToLowerInvariant() == "y";
+        }, progress);
+
+        Console.WriteLine($"\n✓ Extracted to: {dest}");
+    }
+
+    static long GetDirectorySize(string p)
+    {
+        long b = 0;
+        foreach (string name in Directory.GetFiles(p, "*", SearchOption.AllDirectories))
+        {
+            try { b += new FileInfo(name).Length; } catch { }
+        }
+        return b;
     }
 }

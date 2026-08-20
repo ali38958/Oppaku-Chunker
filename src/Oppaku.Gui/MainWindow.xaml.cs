@@ -1,73 +1,389 @@
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Win32;
-using Oppaku.Core.Services;
 using Oppaku.Core.Models;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading.Tasks;
-using System;
+using Oppaku.Core.Services;
 
 namespace Oppaku.Gui;
 
-public class PartViewModel : INotifyPropertyChanged
+// --- Models ---
+public class FsItem : INotifyPropertyChanged
 {
-    public int Index { get; set; }
-    public string DisplayName { get; set; } = string.Empty;
+    public string FullPath { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public bool IsDirectory { get; set; }
+    public long Size { get; set; }
+    public DateTime LastModified { get; set; }
     
-    private bool _isSelected;
-    public bool IsSelected 
-    { 
-        get => _isSelected;
-        set { _isSelected = value; OnPropertyChanged(); }
+    public string SizeDisplay => IsDirectory ? "--" : FormatBytes(Size);
+    public string TypeDisplay => IsDirectory ? "File Folder" : Path.GetExtension(FullPath).ToUpperInvariant() + " File";
+    public string DateDisplay => LastModified.ToString("g");
+    
+    public ImageSource? Icon => SystemIconHelper.GetIcon(FullPath, IsDirectory);
+
+    public ObservableCollection<FsItem> Children { get; set; } = new();
+    private bool _isExpanded;
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set { _isExpanded = value; OnPropertyChanged(); if (value) LoadChildren(); }
+    }
+    
+    public Action<FsItem>? LoadChildrenAction { get; set; }
+    private bool _hasLoadedChildren;
+
+    public void LoadChildren()
+    {
+        if (_hasLoadedChildren || !IsDirectory) return;
+        _hasLoadedChildren = true;
+        Children.Clear();
+        LoadChildrenAction?.Invoke(this);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private static string FormatBytes(long bytes)
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024 * 1024):0.00} GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / (1024.0 * 1024):0.00} MB";
+        if (bytes >= 1024L) return $"{bytes / 1024.0:0.00} KB";
+        return $"{bytes} B";
     }
 }
 
 public partial class MainWindow : Window
 {
-    private string? _sourceHash;
-    private string? _preparedSourcePath;
+    private readonly ObservableCollection<FsItem> _treeRoot = new();
+    private readonly ObservableCollection<FsItem> _currentFiles = new();
+    private readonly ObservableCollection<string> _logLines = new();
+    
     private readonly Extractor _extractor = new();
     private readonly Rebuilder _rebuilder = new();
-    public ObservableCollection<PartViewModel> Parts { get; set; } = new();
-    private readonly ObservableCollection<string> _logLines = new();
+    private bool _isLogExpanded = false;
+    private FileSystemWatcher? _dirWatcher;
 
     public MainWindow()
     {
         InitializeComponent();
-        Parts = new ObservableCollection<PartViewModel>();
-        LstParts.ItemsSource = Parts;
+        TvDirs.ItemsSource = _treeRoot;
+        LvFiles.ItemsSource = _currentFiles;
         LstLog.ItemsSource = _logLines;
-        Log("Oppaku ready. Please select a source and calculate parts.");
+        
+        LoadRootNodes();
+        Log("Oppaku Archive Manager ready.");
+        UpdateStatus();
+        
+        this.Closing += MainWindow_Closing;
     }
 
-    // ─── Logging ──────────────────────────────────────────────────────────────
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(TxtProgressDetail.Text))
+        {
+            var result = MessageBox.Show(
+                "Oppaku is currently performing a task.\nAre you sure you want to cancel the task and quit?", 
+                "Task in Progress", 
+                MessageBoxButton.YesNo, 
+                MessageBoxImage.Warning);
+                
+            if (result == MessageBoxResult.No)
+            {
+                e.Cancel = true;
+            }
+        }
+    }
+
+    // --- File System Navigation ---
+
+    private void LoadRootNodes()
+    {
+        _treeRoot.Clear();
+        
+        void AddFolder(string name, string path)
+        {
+            if (Directory.Exists(path))
+            {
+                var item = new FsItem
+                {
+                    Name = name,
+                    FullPath = path,
+                    IsDirectory = true,
+                    LoadChildrenAction = PopulateChildren
+                };
+                item.Children.Add(new FsItem { Name = "..." });
+                _treeRoot.Add(item);
+            }
+        }
+
+        var thisPc = new FsItem
+        {
+            Name = "This PC",
+            FullPath = "This PC",
+            IsDirectory = true
+        };
+        _treeRoot.Add(thisPc);
+
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        AddFolder("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.Desktop));
+        AddFolder("Downloads", Path.Combine(userProfile, "Downloads"));
+        AddFolder("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+        AddFolder("Pictures", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+        AddFolder("Videos", Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+        AddFolder("Music", Environment.GetFolderPath(Environment.SpecialFolder.MyMusic));
+
+        foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+        {
+            string label = string.IsNullOrEmpty(drive.VolumeLabel) ? "Local Disk" : drive.VolumeLabel;
+            AddFolder($"{label} ({drive.Name})", drive.Name);
+        }
+    }
+
+    private void PopulateChildren(FsItem node)
+    {
+        try
+        {
+            var dirs = Directory.GetDirectories(node.FullPath);
+            foreach (var d in dirs)
+            {
+                var dirInfo = new DirectoryInfo(d);
+                if (dirInfo.Attributes.HasFlag(FileAttributes.Hidden) || dirInfo.Attributes.HasFlag(FileAttributes.System)) continue;
+                
+                var child = new FsItem
+                {
+                    Name = dirInfo.Name,
+                    FullPath = dirInfo.FullName,
+                    IsDirectory = true,
+                    LoadChildrenAction = PopulateChildren
+                };
+                child.Children.Add(new FsItem { Name = "..." });
+                node.Children.Add(child);
+            }
+        }
+        catch { /* Ignore access denied */ }
+    }
+
+    private void TvDirs_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is FsItem node)
+        {
+            NavigateTo(node.FullPath);
+        }
+    }
+
+    private void TvItem_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is FsItem node)
+        {
+            NavigateTo(node.FullPath);
+        }
+    }
+
+    private void NavigateTo(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        
+        if (_dirWatcher != null)
+        {
+            _dirWatcher.EnableRaisingEvents = false;
+            _dirWatcher.Dispose();
+            _dirWatcher = null;
+        }
+        
+        TxtCurrentPath.Text = path;
+        _currentFiles.Clear();
+        
+        if (path == "This PC")
+        {
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+            {
+                string label = string.IsNullOrEmpty(drive.VolumeLabel) ? "Local Disk" : drive.VolumeLabel;
+                _currentFiles.Add(new FsItem
+                {
+                    Name = $"{label} ({drive.Name})",
+                    FullPath = drive.Name,
+                    IsDirectory = true,
+                    LastModified = DateTime.Now
+                });
+            }
+            UpdateStatus();
+            return;
+        }
+
+        try
+        {
+            var di = new DirectoryInfo(path);
+            foreach (var d in di.GetDirectories().Where(x => !x.Attributes.HasFlag(FileAttributes.Hidden)))
+            {
+                _currentFiles.Add(new FsItem
+                {
+                    Name = d.Name, FullPath = d.FullName, IsDirectory = true, LastModified = d.LastWriteTime
+                });
+            }
+            foreach (var f in di.GetFiles().Where(x => !x.Attributes.HasFlag(FileAttributes.Hidden)))
+            {
+                _currentFiles.Add(new FsItem
+                {
+                    Name = f.Name, FullPath = f.FullName, IsDirectory = false, Size = f.Length, LastModified = f.LastWriteTime
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Cannot access {path}: {ex.Message}");
+        }
+        UpdateStatus();
+        
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                _dirWatcher = new FileSystemWatcher(path);
+                _dirWatcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite;
+                _dirWatcher.Created += (s, e) => Dispatcher.InvokeAsync(RefreshCurrentDirectory);
+                _dirWatcher.Deleted += (s, e) => Dispatcher.InvokeAsync(RefreshCurrentDirectory);
+                _dirWatcher.Renamed += (s, e) => Dispatcher.InvokeAsync(RefreshCurrentDirectory);
+                _dirWatcher.EnableRaisingEvents = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Could not start directory watcher: {ex.Message}");
+        }
+    }
+
+    private void RefreshCurrentDirectory()
+    {
+        string path = TxtCurrentPath.Text;
+        if (string.IsNullOrEmpty(path) || path == "This PC") return;
+        
+        var selectedNames = LvFiles.SelectedItems.Cast<FsItem>().Select(x => x.Name).ToList();
+        
+        NavigateTo(path);
+        
+        if (selectedNames.Count > 0)
+        {
+            foreach (var item in _currentFiles)
+            {
+                if (selectedNames.Contains(item.Name))
+                {
+                    LvFiles.SelectedItems.Add(item);
+                }
+            }
+        }
+    }
+
+    private void BtnNavBack_Click(object sender, RoutedEventArgs e)
+    {
+        string current = TxtCurrentPath.Text;
+        if (current == "This PC" || string.IsNullOrEmpty(current)) return;
+        var parent = Directory.GetParent(current);
+        if (parent != null) NavigateTo(parent.FullName);
+        else NavigateTo("This PC");
+    }
+
+    private void TxtCurrentPath_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            string path = TxtCurrentPath.Text;
+            if (path == "This PC" || Directory.Exists(path))
+            {
+                NavigateTo(path);
+            }
+            else
+            {
+                MessageBox.Show($"Directory not found: {path}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private void LvFiles_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (LvFiles.SelectedItem is FsItem item)
+        {
+            if (item.IsDirectory) NavigateTo(item.FullPath);
+            else OpenFile(item.FullPath);
+        }
+    }
+
+    private void LvFiles_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateStatus();
+    }
+
+    private void MenuOpenInExplorer_Click(object sender, RoutedEventArgs e)
+    {
+        string path = TxtCurrentPath.Text;
+        if (LvFiles.SelectedItem is FsItem item) path = item.FullPath;
+        if (Directory.Exists(path) || File.Exists(path))
+            Process.Start("explorer.exe", $"/select,\"{path}\"");
+    }
+
+    private void OpenFile(string path)
+    {
+        if (path.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase) || 
+            path.EndsWith(".oppk", StringComparison.OrdinalIgnoreCase))
+        {
+            Log($"Selected archive: {path}. Use toolbar actions to process.");
+        }
+        else
+        {
+            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+            catch (Exception ex) { Log($"Failed to open file: {ex.Message}"); }
+        }
+    }
+
+    // --- Status & Logging ---
+
+    private void UpdateStatus()
+    {
+        int count = LvFiles.SelectedItems.Count;
+        long totalSize = 0;
+        foreach (FsItem item in LvFiles.SelectedItems)
+        {
+            if (!item.IsDirectory) totalSize += item.Size;
+        }
+        TxtStatusLeft.Text = count > 0 ? $"{count} item(s) selected" : "Ready";
+        TxtStatusRight.Text = count > 0 ? FormatBytes(totalSize) : "";
+    }
 
     private void Log(string message)
     {
         string line = $"[{DateTime.Now:HH:mm:ss}] {message}";
-        _logLines.Add(line);
-        LstLog.ScrollIntoView(line);
+        Dispatcher.Invoke(() => {
+            _logLines.Add(line);
+            LstLog.ScrollIntoView(line);
+        });
+    }
+
+    private void BtnToggleLog_Click(object sender, RoutedEventArgs e)
+    {
+        _isLogExpanded = !_isLogExpanded;
+        LogRow.Height = _isLogExpanded ? new GridLength(140) : new GridLength(0);
+        BtnToggleLog.Content = _isLogExpanded ? "Log \u25BC" : "Log \u25B2";
     }
 
     private void SetProgress(double value, double max, string title, string detail = "")
     {
         TxtGlobalTitle.Text = title;
         PbGlobalProgress.IsIndeterminate = false;
-        PbGlobalProgress.Maximum = max;
+        PbGlobalProgress.Maximum = Math.Max(max, 1);
         PbGlobalProgress.Value = value;
         TxtProgressPercent.Text = max > 0 ? $"{value / max * 100:0.0}%" : "";
         TxtProgressDetail.Text = detail;
+        if (!_isLogExpanded) BtnToggleLog_Click(this, new RoutedEventArgs());
     }
 
     private void SetIndeterminate(string title, string detail = "")
@@ -76,6 +392,7 @@ public partial class MainWindow : Window
         PbGlobalProgress.IsIndeterminate = true;
         TxtProgressPercent.Text = "";
         TxtProgressDetail.Text = detail;
+        if (!_isLogExpanded) BtnToggleLog_Click(this, new RoutedEventArgs());
     }
 
     private void ClearProgress(string title = "Ready")
@@ -95,503 +412,609 @@ public partial class MainWindow : Window
         return $"{bytes} B";
     }
 
-    // ─── Browse Handlers ──────────────────────────────────────────────────────
+    // --- Dialog System ---
 
-    private void BtnBrowseSourceFile_Click(object sender, RoutedEventArgs e)
+    private void ShowDialog(UIElement content)
     {
-        var dialog = new OpenFileDialog { Title = "Select Source File" };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtSourceFile.Text = dialog.FileName;
-            ResetExtractState();
-        }
+        ActionPanel.Content = content;
     }
 
-    private void BtnBrowseSourceFolder_Click(object sender, RoutedEventArgs e)
+    private void CloseDialog()
     {
-        var dialog = new OpenFolderDialog { Title = "Select Source Folder" };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtSourceFile.Text = dialog.FolderName;
-            ResetExtractState();
-        }
+        ActionPanel.Content = null;
     }
 
-    private void BtnBrowseExtractOutput_Click(object sender, RoutedEventArgs e)
+    private (TextBox TextBox, FrameworkElement Container) CreateBrowseField(string defaultPath, bool isFile = false, string filter = "")
     {
-        var dialog = new OpenFolderDialog { Title = "Select Output Folder (USB)" };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtExtractOutput.Text = dialog.FolderName;
-            CheckExtractReady();
-        }
-    }
-
-    private void ResetExtractState()
-    {
-        _sourceHash = null;
-        _preparedSourcePath = null;
-        Parts.Clear();
-        BtnExtract.IsEnabled = false;
-        Log("Source changed — please recalculate parts.");
-        ClearProgress();
-    }
-
-    private long GetChunkSizeBytes(out long value, out string unit)
-    {
-        value = long.Parse(CboChunkSize.Text ?? "100");
-        unit = ((ComboBoxItem)CboChunkUnit.SelectedItem).Content.ToString() ?? "MB";
-        
-        return unit switch
-        {
-            "KB" => value * 1024,
-            "MB" => value * 1024 * 1024,
-            "GB" => value * 1024 * 1024 * 1024,
-            _ => value * 1024 * 1024
-        };
-    }
-
-    // ─── Calculate Parts ──────────────────────────────────────────────────────
-
-    private async void BtnCalculateParts_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(TxtSourceFile.Text)) return;
-        
-        BtnCalculateParts.IsEnabled = false;
-        Parts.Clear();
-        
-        Log("─────────────────────────────────");
-        Log($"Source: {TxtSourceFile.Text}");
-
-        string sourcePath = TxtSourceFile.Text;
-        
-        try
-        {
-            // Step 1 — zip if folder
-            if (Directory.Exists(sourcePath))
+        var dock = new DockPanel { Margin = new Thickness(0,0,0,10) };
+        var txt = new TextBox { Text = defaultPath, Margin = new Thickness(0,0,5,0) };
+        var btn = new Button { Content = "Browse", Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(10,2,10,2) };
+        btn.Click += (s, e) => {
+            if (isFile)
             {
-                SetIndeterminate("Packing Folder", "Packing folder into zero-space archive...");
-                Log("Source is a folder — packing to zero-space archive...");
-
-                await Task.Run(() =>
-                {
-                    string packPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(sourcePath) + ".oppaku-dir");
-                    if (File.Exists(packPath)) File.Delete(packPath);
-                    FolderPacker.Pack(sourcePath, packPath);
-                    _preparedSourcePath = packPath;
-                });
-
-                Log($"Packing complete → {Path.GetFileName(_preparedSourcePath!)}");
+                var d = new Microsoft.Win32.OpenFileDialog { Filter = filter };
+                if (d.ShowDialog() == true) txt.Text = d.FileName;
             }
             else
             {
-                _preparedSourcePath = sourcePath;
+                var d = new Microsoft.Win32.OpenFolderDialog();
+                if (d.ShowDialog() == true) txt.Text = d.FolderName;
             }
-
-            // Step 2 — hash
-            var fi = new FileInfo(_preparedSourcePath!);
-            long fileSize = fi.Length;
-            Log($"File size: {FormatBytes(fileSize)}");
-            Log("Computing SHA-256 hash...");
-            SetProgress(0, fileSize, "Computing Hash", $"0 B / {FormatBytes(fileSize)}");
-
-            string preparedPath = _preparedSourcePath!;
-            string hash = "";
-
-            var hashProgress = new Progress<long>(bytesRead =>
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    SetProgress(bytesRead, fileSize, "Computing Hash",
-                        $"{FormatBytes(bytesRead)} / {FormatBytes(fileSize)} hashed");
-                });
-            });
-
-            await Task.Run(() => hash = _extractor.ComputeSourceFileHash(preparedPath, hashProgress));
-            _sourceHash = hash;
-
-            // Step 3 — compute parts
-            long chunkSizeBytes = GetChunkSizeBytes(out long value, out string unit);
-            int totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
-            
-            for (int i = 0; i < totalChunks; i++)
-            {
-                long partBytes = (i < totalChunks - 1) ? chunkSizeBytes : (fileSize - (long)i * chunkSizeBytes);
-                Parts.Add(new PartViewModel
-                {
-                    Index = i,
-                    DisplayName = $"Part {i}  —  {value} {unit}  ({FormatBytes(partBytes)})",
-                    IsSelected = false
-                });
-            }
-
-            Log($"Hash: {_sourceHash}");
-            Log($"Total parts: {totalChunks} × {value} {unit}  (last part may be smaller)");
-            SetProgress(fileSize, fileSize, "Hash Complete", $"All {FormatBytes(fileSize)} hashed ✓");
-            CheckExtractReady();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            Log($"ERROR: {ex.Message}");
-            ClearProgress("Error");
-        }
-        finally
-        {
-            BtnCalculateParts.IsEnabled = true;
-        }
+        };
+        DockPanel.SetDock(btn, Dock.Right);
+        dock.Children.Add(btn);
+        dock.Children.Add(txt);
+        return (txt, dock);
     }
 
-    private void CheckExtractReady()
-    {
-        BtnExtract.IsEnabled = !string.IsNullOrEmpty(_sourceHash) 
-            && !string.IsNullOrEmpty(TxtExtractOutput.Text)
-            && Parts.Count > 0;
-    }
+    // --- Actions ---
 
-    // ─── Extract ──────────────────────────────────────────────────────────────
-
-    private async void BtnExtract_Click(object sender, RoutedEventArgs e)
+    // 1. EXTRACT CHUNKS (V2 functionality)
+    private void BtnToolExtractChunks_Click(object sender, RoutedEventArgs e)
     {
-        var selectedParts = Parts.Where(p => p.IsSelected).ToList();
-        if (selectedParts.Count == 0)
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
+        if (selected.Count == 0 && !string.IsNullOrEmpty(TxtCurrentPath.Text) && TxtCurrentPath.Text != "This PC")
         {
-            MessageBox.Show("Please select at least one part to extract.");
+            selected.Add(new FsItem { FullPath = TxtCurrentPath.Text, Name = Path.GetFileName(TxtCurrentPath.Text) });
+        }
+        
+        if (selected.Count != 1)
+        {
+            MessageBox.Show("Please select exactly one file or folder to split into chunks.");
             return;
         }
 
-        string output = TxtExtractOutput.Text;
-        string preparedPath = _preparedSourcePath!;
+        string sourcePath = selected[0].FullPath;
         
-        foreach (var part in selectedParts)
-        {
-            string chunkFileName = $"{Path.GetFileName(preparedPath)}.part{part.Index}.oppk";
-            string chunkPath = Path.Combine(output, chunkFileName);
-            if (File.Exists(chunkPath))
-            {
-                var result = MessageBox.Show($"'{chunkFileName}' already exists. Overwrite?", "Overwrite?", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (result == MessageBoxResult.No) return;
-            }
-        }
-
-        BtnExtract.IsEnabled = false;
-        BtnCalculateParts.IsEnabled = false;
+        var sp = new StackPanel { };
+        sp.Children.Add(new TextBlock { Text = "Extract Chunks", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        sp.Children.Add(new TextBlock { Text = $"Source: {sourcePath}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
         
-        long chunkSizeBytes = GetChunkSizeBytes(out long sizeVal, out string sizeUnit);
-        string hash = _sourceHash!;
-        var fi = new FileInfo(preparedPath);
-
-        Log("─────────────────────────────────");
-        Log($"Extracting {selectedParts.Count} part(s) → {output}");
-
-        try
-        {
-            int partsDone = 0;
-            foreach (var part in selectedParts)
-            {
-                long partActualSize = Math.Min(chunkSizeBytes, fi.Length - (long)part.Index * chunkSizeBytes);
-                
-                Log($"→ Part {part.Index}: {FormatBytes(partActualSize)}...");
-                SetProgress(partsDone, selectedParts.Count, $"Extracting Part {part.Index} of {selectedParts.Count - 1}",
-                    $"Starting part {part.Index}...");
-
-                int capturedIndex = part.Index;
-                int capturedDone = partsDone;
-
-                var partProgress = new Progress<long>(bytesWritten =>
-                {
-                    Dispatcher.InvokeAsync(() =>
-                    {
-                        double overall = capturedDone + (double)bytesWritten / partActualSize;
-                        SetProgress(overall, selectedParts.Count,
-                            $"Extracting Part {capturedIndex}",
-                            $"Part {capturedIndex}: {FormatBytes(bytesWritten)} / {FormatBytes(partActualSize)}");
-                    });
-                });
-
-                await Task.Run(() => _extractor.ExtractChunk(preparedPath, part.Index, chunkSizeBytes, output, hash, partProgress));
-
-                partsDone++;
-                Log($"✓ Part {part.Index} complete ({FormatBytes(partActualSize)})");
-                SetProgress(partsDone, selectedParts.Count, "Extracting Parts",
-                    $"{partsDone} / {selectedParts.Count} parts done");
-            }
-
-            Log($"All {selectedParts.Count} parts extracted successfully.");
-            SetProgress(selectedParts.Count, selectedParts.Count, "Extraction Complete",
-                $"{selectedParts.Count} parts written to destination ✓");
-            MessageBox.Show("Selected parts extracted successfully to destination.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Extraction Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            Log($"ERROR: {ex.Message}");
-            ClearProgress("Extraction Failed");
-        }
-        finally
-        {
-            BtnExtract.IsEnabled = true;
-            BtnCalculateParts.IsEnabled = true;
-        }
-    }
-
-    // ─── Rebuild Tab ──────────────────────────────────────────────────────────
-
-    private void BtnBrowseChunk_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Title = "Select Part File(s) (.oppk)", Filter = "Oppaku Parts (*.oppk)|*.oppk|All Files (*.*)|*.*", Multiselect = true };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtChunkFile.Text = string.Join(";", dialog.FileNames);
-            CheckRebuildReady();
-        }
-    }
-
-    private void BtnBrowseTargetFolder_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFolderDialog { Title = "Select Destination Folder (New File)" };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtRebuildOutput.Text = dialog.FolderName;
-            CheckRebuildReady();
-        }
-    }
-
-    private void BtnBrowseTargetFile_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Title = "Select Target File (Append Mode)", Filter = "All Files (*.*)|*.*" };
-        if (dialog.ShowDialog() == true)
-        {
-            TxtRebuildOutput.Text = dialog.FileName;
-            CheckRebuildReady();
-        }
-    }
-
-    private void CheckRebuildReady()
-    {
-        bool ready = !string.IsNullOrEmpty(TxtChunkFile.Text) && !string.IsNullOrEmpty(TxtRebuildOutput.Text);
-        BtnRebuild.IsEnabled = ready;
-        BtnFinalise.IsEnabled = !string.IsNullOrEmpty(TxtRebuildOutput.Text);
-    }
-
-    private async void BtnRebuild_Click(object sender, RoutedEventArgs e)
-    {
-        BtnRebuild.IsEnabled = false;
+        sp.Children.Add(new TextBlock { Text = "Output Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var outField = CreateBrowseField("", false);
+        sp.Children.Add(outField.Container);
         
-        string[] chunkFiles = TxtChunkFile.Text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
-        string targetLoc = TxtRebuildOutput.Text;
+        sp.Children.Add(new TextBlock { Text = "Chunk Size:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var sizePanel = new DockPanel { Margin = new Thickness(0,0,0,10) };
+        var cboUnit = new ComboBox { Width = 60 };
+        cboUnit.Items.Add("KB");
+        cboUnit.Items.Add("MB");
+        cboUnit.Items.Add("GB");
+        cboUnit.SelectedIndex = 1;
+        DockPanel.SetDock(cboUnit, Dock.Right);
+        var txtSize = new TextBox { Text = "100", Margin = new Thickness(0,0,5,0) };
+        sizePanel.Children.Add(cboUnit);
+        sizePanel.Children.Add(txtSize);
+        sp.Children.Add(sizePanel);
 
-        Log("─────────────────────────────────");
-        Log($"Inserting {chunkFiles.Length} part(s) → {targetLoc}");
+        var lstParts = new ListBox { Height = 130, Margin = new Thickness(0,0,0,15), Visibility = Visibility.Collapsed };
+        sp.Children.Add(lstParts);
 
-        SetProgress(0, chunkFiles.Length, "Inserting Parts", "Starting...");
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        
+        var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
+        
+        Stream? currentStream = null;
+        string? currentHash = null;
+        long currentTotalLength = 0;
+        int currentTotalParts = 0;
 
-        try
-        {
-            string newTargetLoc = targetLoc;
-            int count = 0;
+        btnCancel.Click += (s,ev) => {
+            currentStream?.Dispose();
+            CloseDialog();
+        };
 
-            foreach (var chunkFile in chunkFiles)
-            {
-                if (!File.Exists(chunkFile))
-                {
-                    Log($"✗ File not found: {chunkFile}");
-                    continue;
-                }
+        var btnExtract = new Button { Content = "Extract", Style = (Style)FindResource("AccentBtn"), IsEnabled = false };
+        var btnCalc = new Button { Content = "Calculate Parts", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
 
-                var fi = new FileInfo(chunkFile);
-                // Read actual chunk payload size from header so we can show real byte progress
-                long chunkPayloadSize = fi.Length; // fallback
-                try
-                {
-                    using var s = new FileStream(chunkFile, FileMode.Open, FileAccess.Read);
-                    using var r = new BinaryReader(s, System.Text.Encoding.UTF8);
-                    var meta = ChunkMetadata.ReadFrom(r);
-                    chunkPayloadSize = meta.ActualChunkSize;
-                }
-                catch { /* non-critical, use file length */ }
-
-                Log($"→ Merging '{fi.Name}' ({FormatBytes(chunkPayloadSize)})...");
-                SetProgress(0, chunkPayloadSize, $"Merging Part {count + 1} / {chunkFiles.Length}",
-                    $"0 B / {FormatBytes(chunkPayloadSize)} written...");
-
-                string captured = chunkFile;
-                long capturedSize = chunkPayloadSize;
-
-                var partProgress = new Progress<long>(bytesWritten =>
-                {
-                    Dispatcher.InvokeAsync(() =>
-                    {
-                        SetProgress(bytesWritten, capturedSize,
-                            $"Merging Part {count + 1} / {chunkFiles.Length}",
-                            $"{FormatBytes(bytesWritten)} / {FormatBytes(capturedSize)} written");
-                    });
-                });
-
-                await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(captured, newTargetLoc, partProgress));
-
-                count++;
-                Log($"✓ '{fi.Name}' merged ({FormatBytes(chunkPayloadSize)}).");
-                SetProgress(count, chunkFiles.Length, "Inserting Parts",
-                    $"{count} / {chunkFiles.Length} parts inserted");
-            }
-
-            TxtRebuildOutput.Text = newTargetLoc;
+        btnCalc.Click += async (s,ev) => {
+            if (!long.TryParse(txtSize.Text, out long size)) return;
             
-            var rebuildState = _rebuilder.GetProgress(newTargetLoc);
-            bool autoFinalise = false;
-            if (rebuildState != null)
+            long multiplier = 1024 * 1024;
+            if (cboUnit.SelectedItem?.ToString() == "KB") multiplier = 1024;
+            else if (cboUnit.SelectedItem?.ToString() == "GB") multiplier = 1024 * 1024 * 1024;
+            long chunkSize = size * multiplier;
+            
+            btnCalc.IsEnabled = false;
+            lstParts.Items.Clear();
+            lstParts.Visibility = Visibility.Visible;
+            
+            Log("─────────────────────────────────");
+            try
             {
-                var missing = Enumerable.Range(0, rebuildState.Total).Except(rebuildState.Received).ToList();
-                Log($"Status: {rebuildState.Received.Count} / {rebuildState.Total} parts in file.");
-                if (missing.Count > 0)
+                currentStream?.Dispose();
+                
+                if (Directory.Exists(sourcePath))
                 {
-                    Log($"Missing parts: {string.Join(", ", missing)}");
+                    SetIndeterminate("Scanning Folder", "Building virtual stream...");
+                    currentStream = new VirtualFolderStream(sourcePath);
                 }
                 else
                 {
-                    Log("All parts inserted!");
-                    autoFinalise = true;
+                    currentStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                }
+
+                SetProgress(0, currentStream.Length, "Computing Hash", "Scanning files...");
+                var hashProgress = new Progress<long>(b => {
+                    Dispatcher.Invoke(() => SetProgress(b, currentStream.Length, "Computing Hash", $"Scanned: {FormatBytes(b)} / {FormatBytes(currentStream.Length)}"));
+                });
+                currentHash = await Task.Run(() => _extractor.ComputeSourceStreamHash(currentStream, hashProgress));
+                currentTotalLength = currentStream.Length;
+                currentTotalParts = (int)Math.Ceiling((double)currentTotalLength / chunkSize);
+                
+                for (int i = 0; i < currentTotalParts; i++)
+                {
+                    var chk = new CheckBox { Content = $"Part {i} ({FormatBytes(Math.Min(chunkSize, currentTotalLength - (long)i * chunkSize))})", IsChecked = true, Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary"), Margin = new Thickness(0,2,0,2) };
+                    lstParts.Items.Add(chk);
+                }
+
+                btnExtract.IsEnabled = true;
+                ClearProgress("Calculation Complete");
+            }
+            catch (Exception ex)
+            {
+                Log($"Calculate error: {ex.Message}");
+                ClearProgress("Failed");
+            }
+            finally { btnCalc.IsEnabled = true; }
+        };
+
+        btnExtract.Click += async (s,ev) => {
+            if (string.IsNullOrEmpty(outField.TextBox.Text) || currentStream == null || currentHash == null) return;
+            string outDir = outField.TextBox.Text;
+            
+            long multiplier = 1024 * 1024;
+            if (cboUnit.SelectedItem?.ToString() == "KB") multiplier = 1024;
+            else if (cboUnit.SelectedItem?.ToString() == "GB") multiplier = 1024 * 1024 * 1024;
+            long chunkSize = long.Parse(txtSize.Text) * multiplier;
+            
+            var selectedIndices = new List<int>();
+            for (int i = 0; i < lstParts.Items.Count; i++)
+            {
+                if (lstParts.Items[i] is CheckBox chk && chk.IsChecked == true)
+                    selectedIndices.Add(i);
+            }
+            if (selectedIndices.Count == 0) selectedIndices = Enumerable.Range(0, currentTotalParts).ToList();
+            
+            btnExtract.IsEnabled = false;
+            try
+            {
+                await DoExtractChunks(currentStream, Path.GetFileName(sourcePath), outDir, chunkSize, currentHash, selectedIndices);
+            }
+            finally
+            {
+                btnExtract.IsEnabled = true;
+            }
+        };
+        
+        btnPanel.Children.Add(btnCancel);
+        btnPanel.Children.Add(btnCalc);
+        btnPanel.Children.Add(btnExtract);
+        sp.Children.Add(btnPanel);
+        
+        ShowDialog(sp);
+    }
+
+    private async Task DoExtractChunks(Stream sourceStream, string fileName, string outputDir, long chunkSizeBytes, string hash, List<int> selectedIndices)
+    {
+        Log("─────────────────────────────────");
+        try
+        {
+            long fileSize = sourceStream.Length;
+            
+            int totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
+            Log($"Hash: {hash}. Total parts: {totalChunks}");
+            
+            int extractedCount = 0;
+            foreach (int i in selectedIndices)
+            {
+                long partActualSize = Math.Min(chunkSizeBytes, fileSize - (long)i * chunkSizeBytes);
+                SetProgress(extractedCount, selectedIndices.Count, "Extracting Chunks", $"Writing part {i}...");
+                var prog = new Progress<long>(b => {
+                    Dispatcher.Invoke(() => SetProgress(extractedCount + (double)b/partActualSize, selectedIndices.Count, "Extracting Chunks", $"Part {i}: {FormatBytes(b)} / {FormatBytes(partActualSize)}"));
+                });
+                await Task.Run(() => _extractor.ExtractChunk(sourceStream, fileName, i, chunkSizeBytes, outputDir, hash, prog));
+                Log($"✓ Part {i} complete");
+                extractedCount++;
+            }
+            
+            ClearProgress("Chunking Complete");
+            MessageBox.Show($"Successfully extracted {selectedIndices.Count} chunks.", "Success");
+        }
+        catch (Exception ex)
+        {
+            Log($"Error chunking: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // 2. REBUILD (Insert Chunks)
+    private void BtnToolRebuild_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppk")).ToList();
+        
+        var sp = new StackPanel { };
+        sp.Children.Add(new TextBlock { Text = "Insert Chunks", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        
+        sp.Children.Add(new TextBlock { Text = "Selected .oppk files:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var txtFiles = new TextBox { Text = string.Join(";", selected.Select(f => f.FullPath)), Margin = new Thickness(0,0,0,10) };
+        sp.Children.Add(txtFiles);
+        
+        sp.Children.Add(new TextBlock { Text = "Target Rebuild File / Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, true, "All Files (*.*)|*.*");
+        sp.Children.Add(outField.Container);
+
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
+        btnCancel.Click += (s,ev) => CloseDialog();
+        var btnStart = new Button { Content = "Insert", Style = (Style)FindResource("AccentBtn") };
+        
+        btnStart.Click += async (s,ev) => {
+            string filesStr = txtFiles.Text;
+            string outDir = outField.TextBox.Text;
+            if (string.IsNullOrEmpty(filesStr) || string.IsNullOrEmpty(outDir)) return;
+            var files = filesStr.Split(';', StringSplitOptions.RemoveEmptyEntries).ToArray();
+            
+            btnStart.IsEnabled = false;
+            try
+            {
+                await DoRebuild(files, outDir);
+            }
+            finally
+            {
+                btnStart.IsEnabled = true;
+            }
+        };
+        
+        btnPanel.Children.Add(btnCancel);
+        btnPanel.Children.Add(btnStart);
+        sp.Children.Add(btnPanel);
+        
+        ShowDialog(sp);
+    }
+
+    private async Task DoRebuild(string[] chunkFiles, string targetDirOrFile)
+    {
+        Log("─────────────────────────────────");
+        try
+        {
+            string newTargetLoc = targetDirOrFile;
+            for (int i = 0; i < chunkFiles.Length; i++)
+            {
+                var f = chunkFiles[i];
+                if (!File.Exists(f)) continue;
+                SetProgress(i, chunkFiles.Length, "Inserting Parts", $"Inserting {Path.GetFileName(f)}...");
+                var prog = new Progress<long>();
+                await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(f, newTargetLoc, prog));
+                
+                var state = _rebuilder.GetProgress(newTargetLoc);
+                if (state != null)
+                {
+                    var missing = Enumerable.Range(0, state.Total).Except(state.Received).ToList();
+                    string missingStr = missing.Count > 0 ? string.Join(", ", missing) : "None";
+                    Log($"✓ Inserted {Path.GetFileName(f)} | Parts required: {missingStr}");
+                }
+                else
+                {
+                    Log($"✓ Inserted {Path.GetFileName(f)}");
                 }
             }
 
-            SetProgress(chunkFiles.Length, chunkFiles.Length, "Insertion Complete",
-                $"{count} part(s) written ✓");
-
-            if (autoFinalise)
+            var rebuildState = _rebuilder.GetProgress(newTargetLoc);
+            if (rebuildState != null && rebuildState.Received.Count == rebuildState.Total)
             {
-                Log("Auto-starting finalisation...");
-                BtnFinalise_Click(sender, e);
+                Log("All parts inserted! Auto-starting finalisation...");
+                await DoFinalise(chunkFiles[0], newTargetLoc);
             }
             else
             {
-                MessageBox.Show($"Successfully added {count} part(s).", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                ClearProgress("Insertion Complete");
+                MessageBox.Show($"Inserted {chunkFiles.Length} chunks. More required.", "Success");
+                if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Rebuild Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            Log($"ERROR: {ex.Message}");
-            ClearProgress("Insertion Failed");
-        }
-        finally
-        {
-            BtnRebuild.IsEnabled = true;
+            Log($"Error rebuilding: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    private async void BtnFinalise_Click(object sender, RoutedEventArgs e)
+    private async Task DoFinalise(string chunkFile, string targetFile)
     {
-        string[] chunkFiles = TxtChunkFile.Text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
-        string? firstChunk = chunkFiles.FirstOrDefault();
-
-        if (string.IsNullOrEmpty(firstChunk) || !File.Exists(firstChunk)) 
-        {
-            MessageBox.Show("Please select at least one valid part file (.oppk) so we can read the master hash.", "Error");
-            return;
-        }
-
-        string chunkFile = firstChunk;
-        string targetFile = TxtRebuildOutput.Text;
-
-        BtnFinalise.IsEnabled = false;
-
-        Log("─────────────────────────────────");
-        Log($"Finalising: {targetFile}");
-        SetIndeterminate("Finalising Rebuild", "Reading master hash from chunk header...");
-
         try
         {
+            SetIndeterminate("Finalising Rebuild", "Reading master hash from chunk header...");
             string sourceHash = "";
-            await Task.Run(() =>
-            {
+            await Task.Run(() => {
                 using var stream = new FileStream(chunkFile, FileMode.Open, FileAccess.Read);
                 using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8);
                 var meta = ChunkMetadata.ReadFrom(reader);
                 sourceHash = meta.SourceFileHash;
             });
 
-            Log($"Master hash: {sourceHash}");
-
-            // Get content size from embedded progress (excludes the 4KB metadata zone)
             var embedState = _rebuilder.GetProgress(targetFile);
-            long contentSize = embedState?.ContentSize ?? (new FileInfo(targetFile).Length - Oppaku.Core.Services.SparseFileHelper.MetadataReserve);
-            long displaySize = Math.Max(contentSize, 0);
+            long displaySize = Math.Max(embedState?.ContentSize ?? 1, 0);
 
-            Log($"Verifying file hash ({FormatBytes(displaySize)})...");
-            SetProgress(0, displaySize, "Verifying Hash", $"0 B / {FormatBytes(displaySize)}");
-
-            bool success = false;
-            string errorMsg = "";
-
-            var finalProgress = new Progress<long>(bytesHashed =>
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    SetProgress(bytesHashed, displaySize, "Verifying Hash",
-                        $"{FormatBytes(bytesHashed)} / {FormatBytes(displaySize)} verified");
-                });
+            SetProgress(0, displaySize, "Verifying Hash", "Verifying file integrity...");
+            var prog = new Progress<long>(b => {
+                Dispatcher.Invoke(() => SetProgress(b, displaySize, "Verifying Hash"));
             });
 
-            await Task.Run(() =>
+            await Task.Run(() => _rebuilder.Finalise(targetFile, sourceHash, prog));
+            Log("✓ Hash matches — file is intact!");
+            
+            if (FolderPacker.IsPackedFolder(targetFile))
             {
-                try {
-                    _rebuilder.Finalise(targetFile, sourceHash, finalProgress);
-                    success = true;
-                } catch (Exception inner) {
-                    errorMsg = inner.Message;
-                }
-            });
-
-            if (success)
-            {
-                Log("✓ Hash matches — file is intact!");
-                
-                if (FolderPacker.IsPackedFolder(targetFile))
-                {
-                    string destDir = targetFile.EndsWith(".oppaku-dir") 
-                        ? targetFile.Substring(0, targetFile.Length - 11) 
-                        : targetFile + "_extracted";
-                    
-                    SetProgress(0, displaySize, "Unpacking Folder", "Unpacking with zero-space hole-punching...");
-                    var unpackProgress = new Progress<long>(bytes =>
-                    {
-                        Dispatcher.InvokeAsync(() =>
-                        {
-                            SetProgress(bytes, displaySize, "Unpacking Folder",
-                                $"{FormatBytes(bytes)} / {FormatBytes(displaySize)} unpacked");
-                        });
-                    });
-
-                    await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, unpackProgress));
-                    Log($"✓ Extracted folder to {destDir}");
-                }
-
-                SetProgress(displaySize, displaySize, "Finalisation Complete!", "File integrity verified ✓");
-                MessageBox.Show("Rebuild successful! The file is completely intact.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
+                SetIndeterminate("Unpacking Folder", "Restoring folder...");
+                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>()));
+                Log($"✓ Extracted folder to {destDir}");
             }
-            else
-            {
-                Log($"✗ Finalisation failed: {errorMsg}");
-                var failState = _rebuilder.GetProgress(targetFile);
-                if (failState != null)
-                {
-                    var missing = Enumerable.Range(0, failState.Total).Except(failState.Received).ToList();
-                    if (missing.Count > 0)
-                        Log($"Missing parts: {string.Join(", ", missing)}");
-                }
-                ClearProgress("Finalisation Failed");
-            }
+            
+            ClearProgress("Finalisation Complete");
+            MessageBox.Show("Rebuild successful! The file is completely intact.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Finalisation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            Log($"ERROR: {ex.Message}");
-            ClearProgress("Finalisation Failed");
+            Log($"Finalisation failed: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally
+    }
+
+    // 3. CREATE ARCHIVE (V3)
+    private void BtnToolCreateArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
+        if (selected.Count == 0 && !string.IsNullOrEmpty(TxtCurrentPath.Text) && TxtCurrentPath.Text != "This PC")
         {
-            BtnFinalise.IsEnabled = true;
+            selected.Add(new FsItem { FullPath = TxtCurrentPath.Text, Name = Path.GetFileName(TxtCurrentPath.Text) });
+        }
+        if (selected.Count != 1)
+        {
+            MessageBox.Show("Please select exactly one file or folder to archive.");
+            return;
+        }
+
+        string sourcePath = selected[0].FullPath;
+        
+        var sp = new StackPanel { };
+        sp.Children.Add(new TextBlock { Text = "Create Archive", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        sp.Children.Add(new TextBlock { Text = $"Source: {sourcePath}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
+        
+        sp.Children.Add(new TextBlock { Text = "Compression Level:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var cboCompression = new ComboBox { Margin = new Thickness(0,0,0,15) };
+        cboCompression.ItemsSource = Enum.GetValues(typeof(OppakuCompressionLevel));
+        cboCompression.SelectedItem = OppakuCompressionLevel.Normal;
+        sp.Children.Add(cboCompression);
+        
+        sp.Children.Add(new TextBlock { Text = "Password (optional):", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var txtPwd = new PasswordBox { Margin = new Thickness(0,0,0,20) };
+        sp.Children.Add(txtPwd);
+
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
+        btnCancel.Click += (s,ev) => CloseDialog();
+        var btnStart = new Button { Content = "Create", Style = (Style)FindResource("AccentBtn") };
+        
+        btnStart.Click += async (s,ev) => {
+            string targetDir = Directory.Exists(sourcePath) ? sourcePath : (Path.GetDirectoryName(sourcePath) ?? "C:\\");
+            string baseName = Path.GetFileName(sourcePath);
+            string defaultName = baseName + ".oppaku-archive";
+            int counter = 1;
+            
+            while (File.Exists(Path.Combine(targetDir, defaultName)))
+            {
+                defaultName = $"{baseName} ({counter}).oppaku-archive";
+                counter++;
+            }
+
+            var saveDialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Save Archive As",
+                Filter = "Oppaku Archive (*.oppaku-archive)|*.oppaku-archive",
+                FileName = defaultName,
+                InitialDirectory = targetDir
+            };
+            if (saveDialog.ShowDialog() == true)
+            {
+                string pwd = txtPwd.Password;
+                var compression = (OppakuCompressionLevel)cboCompression.SelectedItem;
+                btnStart.IsEnabled = false;
+                try
+                {
+                    await DoCreateArchive(sourcePath, saveDialog.FileName, string.IsNullOrEmpty(pwd) ? null : pwd, compression);
+                }
+                finally
+                {
+                    btnStart.IsEnabled = true;
+                }
+            }
+        };
+        
+        btnPanel.Children.Add(btnCancel);
+        btnPanel.Children.Add(btnStart);
+        sp.Children.Add(btnPanel);
+        
+        ShowDialog(sp);
+    }
+
+    private async Task DoCreateArchive(string sourcePath, string outPath, string? pwd, OppakuCompressionLevel compression)
+    {
+        Log("─────────────────────────────────");
+        SetIndeterminate("Creating Archive", "Packing into secure archive...");
+        try
+        {
+            var prog = new Progress<long>(b => {
+                // Approximate progress for UI responsiveness during solid compression
+                Dispatcher.Invoke(() => SetIndeterminate("Creating Archive", $"Compressing: {FormatBytes(b)} processed..."));
+            });
+            await Task.Run(() => ArchivePacker.Pack(sourcePath, outPath, pwd, compression, prog));
+            Log("✓ Archive created successfully");
+            ClearProgress("Complete");
+            MessageBox.Show("Archive created successfully.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (Exception ex)
+        {
+            Log($"Error creating archive: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // 4. EXTRACT ARCHIVE (V3)
+    private void BtnToolExtractArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppaku-archive")).ToList();
+        if (selected.Count == 0)
+        {
+            MessageBox.Show("Please select an .oppaku-archive file.");
+            return;
+        }
+
+        string sourcePath = selected[0].FullPath;
+        
+        var sp = new StackPanel { };
+        sp.Children.Add(new TextBlock { Text = "Extract Archive", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        sp.Children.Add(new TextBlock { Text = $"Archive: {Path.GetFileName(sourcePath)}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
+        
+        sp.Children.Add(new TextBlock { Text = "Output Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, false);
+        sp.Children.Add(outField.Container);
+
+        sp.Children.Add(new TextBlock { Text = "Password (if required):", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var txtPwd = new PasswordBox { Margin = new Thickness(0,0,0,20) };
+        sp.Children.Add(txtPwd);
+
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
+        btnCancel.Click += (s,ev) => CloseDialog();
+        var btnStart = new Button { Content = "Extract", Style = (Style)FindResource("AccentBtn") };
+        
+        btnStart.Click += async (s,ev) => {
+            string outDir = outField.TextBox.Text;
+            string pwd = txtPwd.Password;
+            if (string.IsNullOrEmpty(outDir)) return;
+            
+            btnStart.IsEnabled = false;
+            try
+            {
+                await DoExtractArchive(sourcePath, outDir, string.IsNullOrEmpty(pwd) ? null : pwd);
+            }
+            finally
+            {
+                btnStart.IsEnabled = true;
+            }
+        };
+        
+        btnPanel.Children.Add(btnCancel);
+        btnPanel.Children.Add(btnStart);
+        sp.Children.Add(btnPanel);
+        
+        ShowDialog(sp);
+    }
+
+    private async Task DoExtractArchive(string archivePath, string outPath, string? pwd)
+    {
+        Log("─────────────────────────────────");
+        var fi = new FileInfo(archivePath);
+        SetProgress(0, fi.Length, "Extracting Archive", "Extracting...");
+        try
+        {
+            var prog = new Progress<long>(b => {
+                Dispatcher.Invoke(() => SetProgress(b, fi.Length, "Extracting Archive"));
+            });
+            
+            Func<string, bool> onOverwriteConfirm = (filePath) => 
+            {
+                bool overwrite = false;
+                Dispatcher.Invoke(() => {
+                    var result = MessageBox.Show($"The file '{Path.GetFileName(filePath)}' already exists in the destination.\nDo you want to overwrite it?", "File Conflict", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    overwrite = (result == MessageBoxResult.Yes);
+                });
+                return overwrite;
+            };
+
+            await Task.Run(() => ArchivePacker.Unpack(archivePath, outPath, pwd, onOverwriteConfirm, prog));
+            Log("✓ Archive extracted successfully");
+            ClearProgress("Complete");
+            MessageBox.Show("Archive extracted successfully.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (Exception ex)
+        {
+            Log($"Error extracting archive: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // 5. HASH CHECK
+    private async void BtnToolHashCheck_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
+        if (selected.Count != 1)
+        {
+            MessageBox.Show("Please select exactly one file to verify.");
+            return;
+        }
+
+        string targetFile = selected[0].FullPath;
+        var state = _rebuilder.GetProgress(targetFile);
+
+        if (state == null)
+        {
+            MessageBox.Show("This file does not appear to be a rebuild-in-progress, or it has already been finalised.", "No Metadata Found", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (state.Received.Count < state.Total)
+        {
+            var missing = Enumerable.Range(0, state.Total).Except(state.Received).ToList();
+            MessageBox.Show($"Cannot verify. Missing parts: {string.Join(", ", missing)}", "Incomplete", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(state.ExpectedHash))
+        {
+            MessageBox.Show("Missing original hash in metadata. Cannot verify standalone.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        Log("─────────────────────────────────");
+        SetIndeterminate("Hash Check", "Verifying file integrity...");
+        try
+        {
+            var prog = new Progress<long>(b => {
+                Dispatcher.Invoke(() => SetProgress(b, state.ContentSize, "Verifying Hash"));
+            });
+
+            await Task.Run(() => _rebuilder.Finalise(targetFile, state.ExpectedHash, prog));
+            
+            Log("✓ Hash matches — file is intact!");
+            
+            if (FolderPacker.IsPackedFolder(targetFile))
+            {
+                string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
+                SetIndeterminate("Unpacking Folder", "Restoring folder...");
+                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>()));
+                Log($"✓ Extracted folder to {destDir}");
+            }
+            
+            ClearProgress("Verification Complete");
+            MessageBox.Show("Rebuild successful! The file is completely intact and finalised.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (Exception ex)
+        {
+            Log($"Verification failed: {ex.Message}");
+            ClearProgress("Failed");
+            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }
