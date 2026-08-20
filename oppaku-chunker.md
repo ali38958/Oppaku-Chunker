@@ -294,3 +294,12 @@ Moving forward, Oppaku is pivoting to become a comprehensive archiving solution.
    
 4. **Cloud & Network Hooks:**
    - Instead of just USB drives, stream out-of-order chunks directly over a local network or via cloud storage, rebuilding the file locally on the fly using the sparse-file engine.
+
+---
+
+### Session 2026-08-20 Notes
+- Replaced FolderPacker with Zero-Storage VirtualFolderStream for memory-efficient chunking.
+- Implemented Solid Archives (.oppaku-archive) with Brotli Compression and AES-256 Encryption.
+- Modernized Oppaku.Cli with archive and unarchive commands to match the GUI features.
+- Generated Top-Star README and implemented strict Proprietary License documentation.
+- Next: Further cloud and network hooks, or archive management commands.
