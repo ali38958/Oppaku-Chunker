@@ -43,3 +43,9 @@ local.properties
 publish/
 *.publish/
 *.dat
+
+# Oppaku Archive and Chunk files
+*.oppk
+*.oppaku-archive
+*.oppaku-dir
+*.log
