@@ -16,9 +16,11 @@ Unlike traditional file splitters that require all parts to be present before re
 ## ✨ Why is Oppaku Unique?
 
 - 🧩 **Sequential Injection**: You don't need all chunks on the target machine at once. You can move Chunk 1 with a small USB, inject it, delete it from the USB, go back for Chunk 2, and repeat.
-- 📂 **Folder Compression**: If you select a folder, Oppaku automatically compresses it in the background before chunking it.
+- 📦 **Solid Archives (V2)**: Instead of just splitting files, Oppaku can now create `.oppaku-archive` solid archives that bundle multiple files into one highly compressed payload.
+- 🗜️ **Brotli Compression & AES-256**: Archives can be heavily compressed (up to 'Extreme' level) using Brotli algorithms and securely encrypted via AES-256 CBC.
+- 🚀 **Zero-Storage Streaming**: When chunking large folders, Oppaku utilizes a custom `VirtualFolderStream` to calculate hashes and slice chunks on the fly directly from the source directory, without creating intermediate temp files.
 - 🔒 **Cryptographic Verification**: The original file's SHA-256 hash is embedded directly into the chunk's metadata. When you are done rebuilding, Oppaku mathematically guarantees your final file is a bit-for-bit perfect match.
-- 💻 **Dual Interfaces**: Includes both a beautiful, modern WPF GUI application and a fully featured Terminal CLI.
+- 💻 **Dual Interfaces**: Includes both a beautiful, native Windows WPF application and a fully featured cross-platform Terminal CLI.
 
 ## 🛠️ Tech Stack
 
