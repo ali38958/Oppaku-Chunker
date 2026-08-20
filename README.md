@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Oppaku Logo" width="160" style="border-radius: 20px; box-shadow: 0 0 20px rgba(0,255,255,0.2);" />
+  <img src="assets/logo.ico" alt="Oppaku Logo" width="160" />
 
   # Oppaku File Chunker & Archiver
   
@@ -7,7 +7,7 @@
 
   [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
   [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Cross--Platform-0078D6?style=flat-square&logo=windows)](https://github.com/ali38958/Oppaku-Chunker)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+  [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg?style=flat-square)](#-license)
 
   [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 Dual Interfaces](#-dual-interfaces)
 
@@ -126,7 +126,7 @@ dotnet publish src\Oppaku.Cli -c Release -r win-x64 --self-contained
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE.md). You are free to use, modify, and distribute this software.
+This project is proprietary and copyrighted by Muhammad Ali. Unauthorized copying, modification, distribution, or claiming ownership of this software is strictly prohibited. See the [LICENSE.md](LICENSE.md) file for more details.
 
 <div align="center">
   <br />
