@@ -1,8 +1,10 @@
 <Window x:Class="Oppaku.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Oppaku" Height="700" Width="1100"
-        MinHeight="550" MinWidth="800"
+        Title="Oppaku" Height="820" Width="1240"
+        MinHeight="600" MinWidth="900"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TxtPrimary}"
         WindowStartupLocation="CenterScreen">
 
     <Grid>
@@ -18,79 +20,87 @@
              TOOLBAR
         ═══════════════════════════════════════════════════════════════ -->
         <Border Grid.Row="0"
-                Background="{StaticResource BgToolbar}"
-                BorderBrush="#C9A888"
-                BorderThickness="0,0,0,2"
-                Height="56">
-            <StackPanel Orientation="Horizontal"
-                        VerticalAlignment="Center"
-                        Margin="12,0">
+                Background="{DynamicResource BgToolbar}"
+                BorderBrush="{DynamicResource BorderToolbar}"
+                BorderThickness="0,0,0,1"
+                Height="48"
+                Padding="12,0">
+            <DockPanel LastChildFill="False">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            DockPanel.Dock="Left">
 
-                <!-- GROUP 1: Chunking -->
-                <Border Background="#D9B89A"
-                        CornerRadius="10"
-                        Padding="4,4"
-                        Margin="0,0,8,0">
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="BtnToolExtractChunks"
-                                Style="{StaticResource ToolbarBtn}"
-                                Content="Extract Chunks"
-                                ToolTip="Split a file or folder into chunks for transport"
-                                Margin="0,0,4,0"
-                                Click="BtnToolExtractChunks_Click"/>
-                        <Button x:Name="BtnToolRebuild"
-                                Style="{StaticResource ToolbarBtn}"
-                                Content="Insert Chunks"
-                                ToolTip="Insert .oppk chunk files into a sparse rebuild file"
-                                Click="BtnToolRebuild_Click"/>
-                    </StackPanel>
-                </Border>
+                    <!-- GROUP 1: Chunking -->
+                    <Button x:Name="BtnToolExtractChunks"
+                            Style="{DynamicResource ToolbarBtn}"
+                            Content="✂️ Extract Chunks"
+                            ToolTip="Split a file or folder into chunks for transport"
+                            Margin="0,0,4,0"
+                            Click="BtnToolExtractChunks_Click"/>
+                    <Button x:Name="BtnToolRebuild"
+                            Style="{DynamicResource ToolbarBtn}"
+                            Content="🧩 Insert Chunks"
+                            ToolTip="Insert .oppk chunk files into a sparse rebuild file"
+                            Click="BtnToolRebuild_Click"/>
 
-                <!-- GROUP 2: Archive -->
-                <Border Background="#D9B89A"
-                        CornerRadius="10"
-                        Padding="4,4"
-                        Margin="0,0,8,0">
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="BtnToolCreateArchive"
-                                Style="{StaticResource ToolbarBtn}"
-                                Content="Create Archive"
-                                ToolTip="Pack a file or folder into a secure .oppaku-archive"
-                                Margin="0,0,4,0"
-                                Click="BtnToolCreateArchive_Click"/>
-                        <Button x:Name="BtnToolExtractArchive"
-                                Style="{StaticResource ToolbarBtn}"
-                                Content="Extract Archive"
-                                ToolTip="Extract a .oppaku-archive with zero-space hole-punching"
-                                Click="BtnToolExtractArchive_Click"/>
-                    </StackPanel>
-                </Border>
+                    <!-- Divider -->
+                    <Border Width="1" Height="20" Background="{DynamicResource DividerToolbar}" Margin="10,0"/>
 
-                <!-- GROUP 3: Tools -->
-                <Border Background="#D9B89A"
-                        CornerRadius="10"
-                        Padding="4,4">
+                    <!-- GROUP 2: Archive -->
+                    <Button x:Name="BtnToolCreateArchive"
+                            Style="{DynamicResource ToolbarBtn}"
+                            Content="📦 Create Archive"
+                            ToolTip="Pack a file or folder into a secure .oppaku-archive"
+                            Margin="0,0,4,0"
+                            Click="BtnToolCreateArchive_Click"/>
+                    <Button x:Name="BtnToolExtractArchive"
+                            Style="{DynamicResource ToolbarBtn}"
+                            Content="📂 Extract Archive"
+                            ToolTip="Extract a .oppaku-archive with zero-space hole-punching"
+                            Click="BtnToolExtractArchive_Click"/>
+
+                    <!-- Divider -->
+                    <Border Width="1" Height="20" Background="{DynamicResource DividerToolbar}" Margin="10,0"/>
+
+                    <!-- GROUP 3: Tools -->
                     <Button x:Name="BtnToolHashCheck"
-                            Style="{StaticResource ToolbarBtn}"
-                            Content="Hash Check"
+                            Style="{DynamicResource ToolbarBtn}"
+                            Content="🛡️ Hash Check"
                             ToolTip="Verify integrity of a rebuilt file"
                             Click="BtnToolHashCheck_Click"/>
-                </Border>
 
-            </StackPanel>
+                </StackPanel>
+
+                <!-- THEME SELECTOR (Far Right) -->
+                <Button x:Name="BtnThemeSelector"
+                        DockPanel.Dock="Right"
+                        Style="{DynamicResource ToolbarBtn}"
+                        Content="🎨 Theme ▾"
+                        MinWidth="95"
+                        ToolTip="Change application theme"
+                        Click="BtnThemeSelector_Click">
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="ThemeContextMenu">
+                            <MenuItem x:Name="MenuThemeSandstone" Header="🏜️ Sandstone Light" Click="MenuTheme_Click" Tag="SandstoneLight"/>
+                            <MenuItem x:Name="MenuThemeEspresso" Header="☕ Espresso Dark" Click="MenuTheme_Click" Tag="EspressoDark"/>
+                            <MenuItem x:Name="MenuThemeObsidian" Header="🌌 Obsidian Slate" Click="MenuTheme_Click" Tag="ObsidianSlate"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </DockPanel>
         </Border>
 
         <!-- ═══════════════════════════════════════════════════════════════
              PATH BAR
         ═══════════════════════════════════════════════════════════════ -->
         <Border Grid.Row="1"
-                Background="{StaticResource BgPanel}"
-                BorderBrush="{StaticResource Border}"
+                Background="{DynamicResource BgPanel}"
+                BorderBrush="{DynamicResource Border}"
                 BorderThickness="0,0,0,1"
                 Padding="10,5">
             <DockPanel>
                 <Button DockPanel.Dock="Left"
-                        Style="{StaticResource GhostBtn}"
+                        Style="{DynamicResource GhostBtn}"
                         Content="&#x2190;"
                         Width="28" Height="24"
                         FontSize="14"
@@ -100,9 +110,9 @@
                         ToolTip="Go up one level"/>
                 <TextBox x:Name="TxtCurrentPath"
                          Text="This PC"
-                         Foreground="{StaticResource TxtPrimary}"
-                         Background="{StaticResource BgBase}"
-                         BorderBrush="{StaticResource Border}"
+                         Foreground="{DynamicResource TxtPrimary}"
+                         Background="{DynamicResource BgBase}"
+                         BorderBrush="{DynamicResource Border}"
                          BorderThickness="1"
                          Padding="4,2"
                          FontSize="12"
@@ -125,15 +135,15 @@
 
             <!-- Directory Tree -->
             <Border Grid.Column="0"
-                    Background="{StaticResource BgPanel}"
-                    BorderBrush="{StaticResource Border}"
+                    Background="{DynamicResource BgPanel}"
+                    BorderBrush="{DynamicResource Border}"
                     BorderThickness="0,0,1,0">
                 <TreeView x:Name="TvDirs"
                           Margin="6"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           SelectedItemChanged="TvDirs_SelectedItemChanged">
                     <TreeView.ItemContainerStyle>
-                        <Style TargetType="{x:Type TreeViewItem}">
+                        <Style TargetType="{x:Type TreeViewItem}" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                             <Setter Property="Padding" Value="4,2" />
                         </Style>
@@ -153,11 +163,11 @@
             <GridSplitter Grid.Column="1"
                           Width="4"
                           HorizontalAlignment="Stretch"
-                          Background="{StaticResource Border}"
+                          Background="{DynamicResource Border}"
                           Cursor="SizeWE"/>
 
             <!-- File List -->
-            <Border Grid.Column="2" Background="{StaticResource BgBase}">
+            <Border Grid.Column="2" Background="{DynamicResource BgBase}">
                 <ListView x:Name="LvFiles"
                           SelectionMode="Extended"
                           MouseDoubleClick="LvFiles_DoubleClick"
@@ -181,13 +191,13 @@
                     </ListView.View>
                     <ListView.ContextMenu>
                         <ContextMenu>
-                            <MenuItem Header="Extract Chunks..."    Click="BtnToolExtractChunks_Click"/>
-                            <MenuItem Header="Create Archive..."    Click="BtnToolCreateArchive_Click"/>
+                            <MenuItem Header="✂️ Extract Chunks..."    Click="BtnToolExtractChunks_Click"/>
+                            <MenuItem Header="📦 Create Archive..."    Click="BtnToolCreateArchive_Click"/>
                             <Separator/>
-                            <MenuItem Header="Extract Archive..."   Click="BtnToolExtractArchive_Click"/>
-                            <MenuItem Header="Insert Chunks..."     Click="BtnToolRebuild_Click"/>
+                            <MenuItem Header="📂 Extract Archive..."   Click="BtnToolExtractArchive_Click"/>
+                            <MenuItem Header="🧩 Insert Chunks..."     Click="BtnToolRebuild_Click"/>
                             <Separator/>
-                            <MenuItem Header="Open in Explorer"     Click="MenuOpenInExplorer_Click"/>
+                            <MenuItem Header="📁 Open in Explorer"     Click="MenuOpenInExplorer_Click"/>
                         </ContextMenu>
                     </ListView.ContextMenu>
                 </ListView>
@@ -197,14 +207,12 @@
             <GridSplitter Grid.Column="3"
                           Width="4"
                           HorizontalAlignment="Stretch"
-                          Background="{StaticResource Border}"
+                          Background="{DynamicResource Border}"
                           Cursor="SizeWE"/>
 
             <!-- Action Panel (Right Side) -->
-            <Border Grid.Column="4" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource Border}" BorderThickness="1,0,0,0">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <ContentControl x:Name="ActionPanel" Margin="15" HorizontalAlignment="Stretch" VerticalAlignment="Top"/>
-                </ScrollViewer>
+            <Border Grid.Column="4" Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource Border}" BorderThickness="1,0,0,0">
+                <ContentControl x:Name="ActionPanel" Margin="15" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
             </Border>
         </Grid>
 
@@ -213,8 +221,8 @@
         ═══════════════════════════════════════════════════════════════ -->
         <Border Grid.Row="3"
                 x:Name="ProgressPanel"
-                Background="{StaticResource BgPanel}"
-                BorderBrush="{StaticResource Border}"
+                Background="{DynamicResource BgPanel}"
+                BorderBrush="{DynamicResource Border}"
                 BorderThickness="0,1,0,0"
                 Padding="12,10">
             <Grid>
@@ -233,21 +241,21 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="TxtGlobalTitle"
                                Text="Ready"
-                               Foreground="{StaticResource Accent}"
+                               Foreground="{DynamicResource Accent}"
                                FontWeight="SemiBold"
                                FontSize="12"
                                VerticalAlignment="Center"/>
                     <TextBlock x:Name="TxtProgressPercent"
                                Grid.Column="1"
                                Text=""
-                               Foreground="{StaticResource Accent}"
+                               Foreground="{DynamicResource Accent}"
                                FontWeight="SemiBold"
                                FontSize="12"
                                Margin="8,0"
                                VerticalAlignment="Center"/>
                     <Button Grid.Column="2"
                             x:Name="BtnToggleLog"
-                            Style="{StaticResource GhostBtn}"
+                            Style="{DynamicResource GhostBtn}"
                             Content="Log &#x25B2;"
                             FontSize="11"
                             Padding="8,3"
@@ -266,7 +274,7 @@
                     <TextBlock x:Name="TxtProgressDetail"
                                Grid.Row="1"
                                Text=""
-                               Foreground="{StaticResource TxtSecondary}"
+                               Foreground="{DynamicResource TxtSecondary}"
                                FontSize="11"
                                Margin="0,4,0,0"
                                FontFamily="Consolas"/>
@@ -276,9 +284,9 @@
                 <Border Grid.Row="2" Margin="0,8,0,0" x:Name="LogBorder">
                     <ListBox x:Name="LstLog"
                              Height="130"
-                             Background="{StaticResource BgBase}"
+                             Background="{DynamicResource BgBase}"
                              BorderThickness="1"
-                             BorderBrush="{StaticResource Border}"
+                             BorderBrush="{DynamicResource Border}"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              Focusable="False">
@@ -302,7 +310,7 @@
                                            TextWrapping="Wrap"
                                            FontSize="11"
                                            FontFamily="Consolas"
-                                           Foreground="{StaticResource TxtSecondary}"
+                                           Foreground="{DynamicResource TxtSecondary}"
                                            Padding="6,1"/>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -315,8 +323,8 @@
              STATUS BAR
         ═══════════════════════════════════════════════════════════════ -->
         <Border Grid.Row="4"
-                Background="{StaticResource BgToolbar}"
-                BorderBrush="{StaticResource Border}"
+                Background="{DynamicResource BgToolbar}"
+                BorderBrush="{DynamicResource Border}"
                 BorderThickness="0,1,0,0"
                 Padding="12,4">
             <Grid>
@@ -326,13 +334,13 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="TxtStatusLeft"
                            Text="Ready"
-                           Foreground="{StaticResource TxtSecondary}"
+                           Foreground="{DynamicResource TxtSecondary}"
                            FontSize="11"
                            VerticalAlignment="Center"/>
                 <TextBlock x:Name="TxtStatusRight"
                            Grid.Column="1"
                            Text=""
-                           Foreground="{StaticResource TxtMuted}"
+                           Foreground="{DynamicResource TxtMuted}"
                            FontSize="11"
                            VerticalAlignment="Center"/>
             </Grid>

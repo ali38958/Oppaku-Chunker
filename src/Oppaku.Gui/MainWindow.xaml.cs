@@ -13,6 +13,8 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using Oppaku.Core.Models;
 using Oppaku.Core.Services;
+using Oppaku.Gui.Services;
+using Oppaku.Gui.Themes;
 
 namespace Oppaku.Gui;
 
@@ -76,16 +78,53 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        ThemeManager.Initialize();
         InitializeComponent();
+        UpdateThemeMenuChecks(ThemeManager.CurrentTheme);
+        ThemeManager.ThemeChanged += UpdateThemeMenuChecks;
+
         TvDirs.ItemsSource = _treeRoot;
         LvFiles.ItemsSource = _currentFiles;
         LstLog.ItemsSource = _logLines;
+
+        EnableSmoothScrolling(TvDirs);
+        EnableSmoothScrolling(LvFiles);
+        EnableSmoothScrolling(LstLog);
         
         LoadRootNodes();
         Log("Oppaku Archive Manager ready.");
         UpdateStatus();
         
         this.Closing += MainWindow_Closing;
+    }
+
+    private void BtnThemeSelector_Click(object sender, RoutedEventArgs e)
+    {
+        if (BtnThemeSelector.ContextMenu != null)
+        {
+            BtnThemeSelector.ContextMenu.PlacementTarget = BtnThemeSelector;
+            BtnThemeSelector.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            BtnThemeSelector.ContextMenu.IsOpen = true;
+        }
+    }
+
+    private void MenuTheme_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.Tag is string tagStr)
+        {
+            if (Enum.TryParse<ThemePreset>(tagStr, out var preset))
+            {
+                ThemeManager.ApplyTheme(preset);
+                Log($"Theme set to: {preset}");
+            }
+        }
+    }
+
+    private void UpdateThemeMenuChecks(ThemePreset current)
+    {
+        if (MenuThemeSandstone != null) MenuThemeSandstone.Header = (current == ThemePreset.SandstoneLight ? "✓ " : "   ") + "🏜️ Sandstone Light";
+        if (MenuThemeEspresso != null) MenuThemeEspresso.Header  = (current == ThemePreset.EspressoDark ? "✓ " : "   ") + "☕ Espresso Dark";
+        if (MenuThemeObsidian != null) MenuThemeObsidian.Header  = (current == ThemePreset.ObsidianSlate ? "✓ " : "   ") + "🌌 Obsidian Slate";
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -443,6 +482,85 @@ public partial class MainWindow : Window
         _activeRebuildFilesTxt = null;
     }
 
+    private static TextBlock CreateHeaderLabel(string text)
+    {
+        var tb = new TextBlock { Text = text, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15) };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "TxtPrimary");
+        return tb;
+    }
+
+    private static TextBlock CreateLabel(string text, Thickness? margin = null)
+    {
+        var tb = new TextBlock { Text = text, Margin = margin ?? new Thickness(0,0,0,5) };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "TxtPrimary");
+        return tb;
+    }
+
+    private static TextBlock CreateSecondaryLabel(string text, Thickness? margin = null, bool wrap = false)
+    {
+        var tb = new TextBlock { Text = text, Margin = margin ?? new Thickness(0,0,0,10), TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "TxtSecondary");
+        return tb;
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typed) return typed;
+            var nested = FindVisualChild<T>(child);
+            if (nested != null) return nested;
+        }
+        return null;
+    }
+
+    private static void EnableSmoothScrolling(ItemsControl control)
+    {
+        VirtualizingPanel.SetScrollUnit(control, ScrollUnit.Pixel);
+        VirtualizingPanel.SetVirtualizationMode(control, VirtualizationMode.Recycling);
+        ScrollViewer.SetIsDeferredScrollingEnabled(control, false);
+        
+        control.PreviewMouseWheel += (s, e) =>
+        {
+            var scroller = FindVisualChild<ScrollViewer>(control);
+            if (scroller != null)
+            {
+                if (Keyboard.Modifiers == ModifierKeys.Shift)
+                {
+                    scroller.ScrollToHorizontalOffset(scroller.HorizontalOffset - (e.Delta * 0.4));
+                }
+                else
+                {
+                    scroller.ScrollToVerticalOffset(scroller.VerticalOffset - (e.Delta * 0.4));
+                }
+                e.Handled = true;
+            }
+        };
+    }
+
+    private static Grid CreateDialogContainer(UIElement fixedTop, UIElement? flexibleMiddle, UIElement fixedBottom)
+    {
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Fixed Top (Header + Form inputs)
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Flexible Middle (e.g. Scrollable parts list)
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Fixed Bottom (Action Buttons)
+
+        Grid.SetRow((FrameworkElement)fixedTop, 0);
+        grid.Children.Add(fixedTop);
+
+        if (flexibleMiddle != null)
+        {
+            Grid.SetRow((FrameworkElement)flexibleMiddle, 1);
+            grid.Children.Add(flexibleMiddle);
+        }
+
+        Grid.SetRow((FrameworkElement)fixedBottom, 2);
+        grid.Children.Add(fixedBottom);
+
+        return grid;
+    }
+
     private (TextBox TextBox, FrameworkElement Container) CreateBrowseField(string defaultPath, bool isFile = false, string filter = "")
     {
         var dock = new DockPanel { Margin = new Thickness(0,0,0,10) };
@@ -485,15 +603,15 @@ public partial class MainWindow : Window
 
         string sourcePath = selected[0].FullPath;
         
-        var sp = new StackPanel { };
-        sp.Children.Add(new TextBlock { Text = "Extract Chunks", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
-        sp.Children.Add(new TextBlock { Text = $"Source: {sourcePath}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
+        var fixedTop = new StackPanel();
+        fixedTop.Children.Add(CreateHeaderLabel("Extract Chunks"));
+        fixedTop.Children.Add(CreateSecondaryLabel($"Source: {sourcePath}", wrap: true));
         
-        sp.Children.Add(new TextBlock { Text = "Output Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Output Directory:"));
         var outField = CreateBrowseField("", false);
-        sp.Children.Add(outField.Container);
+        fixedTop.Children.Add(outField.Container);
         
-        sp.Children.Add(new TextBlock { Text = "Chunk Size:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Chunk Size:"));
         var sizePanel = new DockPanel { Margin = new Thickness(0,0,0,10) };
         var cboUnit = new ComboBox { Width = 60 };
         cboUnit.Items.Add("KB");
@@ -504,12 +622,21 @@ public partial class MainWindow : Window
         var txtSize = new TextBox { Text = "100", Margin = new Thickness(0,0,5,0) };
         sizePanel.Children.Add(cboUnit);
         sizePanel.Children.Add(txtSize);
-        sp.Children.Add(sizePanel);
+        fixedTop.Children.Add(sizePanel);
 
-        var lstParts = new ListBox { Height = 130, Margin = new Thickness(0,0,0,15), Visibility = Visibility.Collapsed };
-        sp.Children.Add(lstParts);
+        var lstParts = new ListBox {
+            Margin = new Thickness(0,0,0,10),
+            Visibility = Visibility.Collapsed,
+            Background = (System.Windows.Media.Brush)FindResource("BgInput"),
+            BorderBrush = (System.Windows.Media.Brush)FindResource("Border"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(4)
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(lstParts, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(lstParts, ScrollBarVisibility.Disabled);
+        EnableSmoothScrolling(lstParts);
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
         
@@ -609,9 +736,8 @@ public partial class MainWindow : Window
         btnPanel.Children.Add(btnCancel);
         btnPanel.Children.Add(btnCalc);
         btnPanel.Children.Add(btnExtract);
-        sp.Children.Add(btnPanel);
         
-        ShowDialog(sp);
+        ShowDialog(CreateDialogContainer(fixedTop, lstParts, btnPanel));
     }
 
     private async Task DoExtractChunks(Stream sourceStream, string fileName, string outputDir, long chunkSizeBytes, string hash, List<int> selectedIndices)
@@ -657,21 +783,21 @@ public partial class MainWindow : Window
 
     private void OpenRebuildDialog(string[] preloadedFiles)
     {
-        var sp = new StackPanel { };
-        sp.Children.Add(new TextBlock { Text = "Insert Chunks", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        var fixedTop = new StackPanel();
+        fixedTop.Children.Add(CreateHeaderLabel("Insert Chunks"));
         
-        sp.Children.Add(new TextBlock { Text = "Selected .oppk files:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Selected .oppk files:"));
         var txtFiles = new TextBox { Text = string.Join(";", preloadedFiles), Margin = new Thickness(0,0,0,10) };
-        sp.Children.Add(txtFiles);
+        fixedTop.Children.Add(txtFiles);
         
         // Register the active TextBox so clicking more .oppk files appends here
         _activeRebuildFilesTxt = txtFiles;
         
-        sp.Children.Add(new TextBlock { Text = "Target Rebuild File / Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Target Rebuild File / Directory:"));
         var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, true, "All Files (*.*)|*.*");
-        sp.Children.Add(outField.Container);
+        fixedTop.Children.Add(outField.Container);
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
         btnCancel.Click += (s,ev) => CloseDialog();
         var btnStart = new Button { Content = "Insert", Style = (Style)FindResource("AccentBtn") };
@@ -695,9 +821,8 @@ public partial class MainWindow : Window
         
         btnPanel.Children.Add(btnCancel);
         btnPanel.Children.Add(btnStart);
-        sp.Children.Add(btnPanel);
         
-        ShowDialog(sp);
+        ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
     private async Task DoRebuild(string[] chunkFiles, string targetDirOrFile)
@@ -808,21 +933,21 @@ public partial class MainWindow : Window
 
         string sourcePath = selected[0].FullPath;
         
-        var sp = new StackPanel { };
-        sp.Children.Add(new TextBlock { Text = "Create Archive", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
-        sp.Children.Add(new TextBlock { Text = $"Source: {sourcePath}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
+        var fixedTop = new StackPanel();
+        fixedTop.Children.Add(CreateHeaderLabel("Create Archive"));
+        fixedTop.Children.Add(CreateSecondaryLabel($"Source: {sourcePath}", wrap: true));
         
-        sp.Children.Add(new TextBlock { Text = "Compression Level:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Compression Level:"));
         var cboCompression = new ComboBox { Margin = new Thickness(0,0,0,15) };
         cboCompression.ItemsSource = Enum.GetValues(typeof(OppakuCompressionLevel));
         cboCompression.SelectedItem = OppakuCompressionLevel.Normal;
-        sp.Children.Add(cboCompression);
+        fixedTop.Children.Add(cboCompression);
         
-        sp.Children.Add(new TextBlock { Text = "Password (optional):", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Password (optional):"));
         var txtPwd = new PasswordBox { Margin = new Thickness(0,0,0,20) };
-        sp.Children.Add(txtPwd);
+        fixedTop.Children.Add(txtPwd);
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
         btnCancel.Click += (s,ev) => CloseDialog();
         var btnStart = new Button { Content = "Create", Style = (Style)FindResource("AccentBtn") };
@@ -864,9 +989,8 @@ public partial class MainWindow : Window
         
         btnPanel.Children.Add(btnCancel);
         btnPanel.Children.Add(btnStart);
-        sp.Children.Add(btnPanel);
         
-        ShowDialog(sp);
+        ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
     private async Task DoCreateArchive(string sourcePath, string outPath, string? pwd, OppakuCompressionLevel compression)
@@ -905,19 +1029,19 @@ public partial class MainWindow : Window
 
         string sourcePath = selected[0].FullPath;
         
-        var sp = new StackPanel { };
-        sp.Children.Add(new TextBlock { Text = "Extract Archive", FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0,0,0,15), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
-        sp.Children.Add(new TextBlock { Text = $"Archive: {Path.GetFileName(sourcePath)}", Margin = new Thickness(0,0,0,10), TextWrapping = TextWrapping.Wrap, Foreground = (System.Windows.Media.Brush)FindResource("TxtSecondary") });
+        var fixedTop = new StackPanel();
+        fixedTop.Children.Add(CreateHeaderLabel("Extract Archive"));
+        fixedTop.Children.Add(CreateSecondaryLabel($"Archive: {Path.GetFileName(sourcePath)}", wrap: true));
         
-        sp.Children.Add(new TextBlock { Text = "Output Directory:", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Output Directory:"));
         var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, false);
-        sp.Children.Add(outField.Container);
+        fixedTop.Children.Add(outField.Container);
 
-        sp.Children.Add(new TextBlock { Text = "Password (if required):", Margin = new Thickness(0,0,0,5), Foreground = (System.Windows.Media.Brush)FindResource("TxtPrimary") });
+        fixedTop.Children.Add(CreateLabel("Password (if required):"));
         var txtPwd = new PasswordBox { Margin = new Thickness(0,0,0,20) };
-        sp.Children.Add(txtPwd);
+        fixedTop.Children.Add(txtPwd);
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
         btnCancel.Click += (s,ev) => CloseDialog();
         var btnStart = new Button { Content = "Extract", Style = (Style)FindResource("AccentBtn") };
@@ -940,9 +1064,8 @@ public partial class MainWindow : Window
         
         btnPanel.Children.Add(btnCancel);
         btnPanel.Children.Add(btnStart);
-        sp.Children.Add(btnPanel);
         
-        ShowDialog(sp);
+        ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
     private async Task DoExtractArchive(string archivePath, string outPath, string? pwd)

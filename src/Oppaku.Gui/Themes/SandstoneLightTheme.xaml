@@ -1,0 +1,36 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ═══ SANDSTONE LIGHT THEME TOKENS ═════════════════════════════════ -->
+    <SolidColorBrush x:Key="BgBase"              Color="#FDF4EF"/>
+    <SolidColorBrush x:Key="BgSurface"           Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="BgPanel"             Color="#F5EBE4"/>
+    <SolidColorBrush x:Key="BgToolbar"           Color="#E8C9B0"/>
+    <SolidColorBrush x:Key="BgHover"             Color="#EDE0D6"/>
+    <SolidColorBrush x:Key="BgSelected"          Color="#9E533A"/>
+    <SolidColorBrush x:Key="BgInput"             Color="#FFFFFF"/>
+    
+    <SolidColorBrush x:Key="BgToolbarBtn"        Color="#FFFAF6"/>
+    <SolidColorBrush x:Key="BgToolbarBtnHover"   Color="#EDE0D6"/>
+    <SolidColorBrush x:Key="BgToolbarBtnPressed" Color="#DBC4B6"/>
+    <SolidColorBrush x:Key="BorderToolbarBtn"    Color="#D4B49A"/>
+    <SolidColorBrush x:Key="BorderToolbar"       Color="#C9A888"/>
+    <SolidColorBrush x:Key="DividerToolbar"      Color="#D4B49A"/>
+
+    <SolidColorBrush x:Key="Accent"              Color="#B5654A"/>
+    <SolidColorBrush x:Key="AccentHover"         Color="#9E533A"/>
+    <SolidColorBrush x:Key="AccentMuted"         Color="#DBC4B6"/>
+
+    <SolidColorBrush x:Key="TxtPrimary"          Color="#212529"/>
+    <SolidColorBrush x:Key="TxtSecondary"        Color="#495057"/>
+    <SolidColorBrush x:Key="TxtMuted"            Color="#6C757D"/>
+    <SolidColorBrush x:Key="TxtToolbar"          Color="#212529"/>
+
+    <SolidColorBrush x:Key="Border"              Color="#E8D8CC"/>
+    <SolidColorBrush x:Key="BorderAccent"        Color="#B5654A"/>
+
+    <SolidColorBrush x:Key="Success"             Color="#198754"/>
+    <SolidColorBrush x:Key="Warning"             Color="#FFC107"/>
+    <SolidColorBrush x:Key="Danger"              Color="#DC3545"/>
+
+</ResourceDictionary>
