@@ -174,7 +174,7 @@
                           SelectionChanged="LvFiles_SelectionChanged">
                     <ListView.View>
                         <GridView>
-                            <GridViewColumn Header="Name" Width="340">
+                            <GridViewColumn Header="Name"          Width="230">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal">
@@ -184,9 +184,9 @@
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="Size"          Width="90"  DisplayMemberBinding="{Binding SizeDisplay}"/>
-                            <GridViewColumn Header="Type"          Width="120" DisplayMemberBinding="{Binding TypeDisplay}"/>
-                            <GridViewColumn Header="Date Modified" Width="150" DisplayMemberBinding="{Binding DateDisplay}"/>
+                            <GridViewColumn Header="Size"          Width="80"  DisplayMemberBinding="{Binding SizeDisplay}"/>
+                            <GridViewColumn Header="Type"          Width="100" DisplayMemberBinding="{Binding TypeDisplay}"/>
+                            <GridViewColumn Header="Date Modified" Width="140" DisplayMemberBinding="{Binding DateDisplay}"/>
                         </GridView>
                     </ListView.View>
                     <ListView.ContextMenu>
