@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -76,6 +77,9 @@ public partial class MainWindow : Window
     private bool _isLogExpanded = false;
     private FileSystemWatcher? _dirWatcher;
 
+    private CancellationTokenSource? _activeTaskCts;
+    private bool IsTaskRunning => _activeTaskCts != null && !_activeTaskCts.IsCancellationRequested;
+
     public MainWindow()
     {
         ThemeManager.Initialize();
@@ -127,17 +131,46 @@ public partial class MainWindow : Window
         if (MenuThemeObsidian != null) MenuThemeObsidian.Header  = (current == ThemePreset.ObsidianSlate ? "✓ " : "   ") + "🌌 Obsidian Slate";
     }
 
+    private bool ConfirmAndCancelActiveTask()
+    {
+        if (!IsTaskRunning) return true;
+
+        var result = MessageBox.Show(
+            "A task is currently in progress.\n\nDo you really want to cancel the running process and revert incomplete operations?", 
+            "Task in Progress", 
+            MessageBoxButton.YesNo, 
+            MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Log("⚠️ Cancellation requested by user...");
+            _activeTaskCts?.Cancel();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void BtnCancelGlobalTask_Click(object sender, RoutedEventArgs e)
+    {
+        ConfirmAndCancelActiveTask();
+    }
+
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (!string.IsNullOrEmpty(TxtProgressDetail.Text))
+        if (IsTaskRunning)
         {
             var result = MessageBox.Show(
-                "Oppaku is currently performing a task.\nAre you sure you want to cancel the task and quit?", 
+                "Oppaku is currently performing a task.\n\nAre you sure you want to cancel the task and quit?", 
                 "Task in Progress", 
                 MessageBoxButton.YesNo, 
                 MessageBoxImage.Warning);
                 
-            if (result == MessageBoxResult.No)
+            if (result == MessageBoxResult.Yes)
+            {
+                _activeTaskCts?.Cancel();
+            }
+            else
             {
                 e.Cancel = true;
             }
@@ -440,6 +473,7 @@ public partial class MainWindow : Window
         PbGlobalProgress.Value = value;
         TxtProgressPercent.Text = max > 0 ? $"{value / max * 100:0.0}%" : "";
         TxtProgressDetail.Text = detail;
+        if (BtnCancelGlobalTask != null) BtnCancelGlobalTask.Visibility = IsTaskRunning ? Visibility.Visible : Visibility.Collapsed;
         if (!_isLogExpanded) BtnToggleLog_Click(this, new RoutedEventArgs());
     }
 
@@ -449,6 +483,7 @@ public partial class MainWindow : Window
         PbGlobalProgress.IsIndeterminate = true;
         TxtProgressPercent.Text = "";
         TxtProgressDetail.Text = detail;
+        if (BtnCancelGlobalTask != null) BtnCancelGlobalTask.Visibility = IsTaskRunning ? Visibility.Visible : Visibility.Collapsed;
         if (!_isLogExpanded) BtnToggleLog_Click(this, new RoutedEventArgs());
     }
 
@@ -459,6 +494,7 @@ public partial class MainWindow : Window
         PbGlobalProgress.Value = 0;
         TxtProgressPercent.Text = "";
         TxtProgressDetail.Text = "";
+        if (BtnCancelGlobalTask != null) BtnCancelGlobalTask.Visibility = Visibility.Collapsed;
     }
 
     private static string FormatBytes(long bytes)
@@ -478,6 +514,11 @@ public partial class MainWindow : Window
 
     private void CloseDialog()
     {
+        if (IsTaskRunning)
+        {
+            ConfirmAndCancelActiveTask();
+            return;
+        }
         ActionPanel.Content = null;
         _activeRebuildFilesTxt = null;
     }
@@ -589,6 +630,12 @@ public partial class MainWindow : Window
     // 1. EXTRACT CHUNKS (V2 functionality)
     private void BtnToolExtractChunks_Click(object sender, RoutedEventArgs e)
     {
+        if (IsTaskRunning)
+        {
+            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
         if (selected.Count == 0 && !string.IsNullOrEmpty(TxtCurrentPath.Text) && TxtCurrentPath.Text != "This PC")
         {
@@ -646,6 +693,11 @@ public partial class MainWindow : Window
         int currentTotalParts = 0;
 
         btnCancel.Click += (s,ev) => {
+            if (IsTaskRunning)
+            {
+                ConfirmAndCancelActiveTask();
+                return;
+            }
             currentStream?.Dispose();
             CloseDialog();
         };
@@ -654,6 +706,7 @@ public partial class MainWindow : Window
         var btnCalc = new Button { Content = "Calculate Parts", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
 
         btnCalc.Click += async (s,ev) => {
+            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
             if (!long.TryParse(txtSize.Text, out long size)) return;
             
             long multiplier = 1024 * 1024;
@@ -666,6 +719,9 @@ public partial class MainWindow : Window
             lstParts.Visibility = Visibility.Visible;
             
             Log("─────────────────────────────────");
+            _activeTaskCts = new CancellationTokenSource();
+            var ct = _activeTaskCts.Token;
+
             try
             {
                 currentStream?.Dispose();
@@ -684,7 +740,7 @@ public partial class MainWindow : Window
                 var hashProgress = new Progress<long>(b => {
                     Dispatcher.Invoke(() => SetProgress(b, currentStream.Length, "Computing Hash", $"Scanned: {FormatBytes(b)} / {FormatBytes(currentStream.Length)}"));
                 });
-                currentHash = await Task.Run(() => _extractor.ComputeSourceStreamHash(currentStream, hashProgress));
+                currentHash = await Task.Run(() => _extractor.ComputeSourceStreamHash(currentStream, hashProgress, ct), ct);
                 currentTotalLength = currentStream.Length;
                 currentTotalParts = (int)Math.Ceiling((double)currentTotalLength / chunkSize);
                 
@@ -697,15 +753,29 @@ public partial class MainWindow : Window
                 btnExtract.IsEnabled = true;
                 ClearProgress("Calculation Complete");
             }
+            catch (OperationCanceledException)
+            {
+                Log("⚠️ Hash calculation cancelled.");
+                ClearProgress("Cancelled");
+                currentStream?.Dispose();
+                currentStream = null;
+                currentHash = null;
+            }
             catch (Exception ex)
             {
                 Log($"Calculate error: {ex.Message}");
                 ClearProgress("Failed");
             }
-            finally { btnCalc.IsEnabled = true; }
+            finally
+            {
+                _activeTaskCts?.Dispose();
+                _activeTaskCts = null;
+                btnCalc.IsEnabled = true;
+            }
         };
 
         btnExtract.Click += async (s,ev) => {
+            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
             if (string.IsNullOrEmpty(outField.TextBox.Text) || currentStream == null || currentHash == null) return;
             string outDir = outField.TextBox.Text;
             
@@ -723,12 +793,16 @@ public partial class MainWindow : Window
             if (selectedIndices.Count == 0) selectedIndices = Enumerable.Range(0, currentTotalParts).ToList();
             
             btnExtract.IsEnabled = false;
+            _activeTaskCts = new CancellationTokenSource();
+            var ct = _activeTaskCts.Token;
             try
             {
-                await DoExtractChunks(currentStream, Path.GetFileName(sourcePath), outDir, chunkSize, currentHash, selectedIndices);
+                await DoExtractChunks(currentStream, Path.GetFileName(sourcePath), outDir, chunkSize, currentHash, selectedIndices, ct);
             }
             finally
             {
+                _activeTaskCts?.Dispose();
+                _activeTaskCts = null;
                 btnExtract.IsEnabled = true;
             }
         };
@@ -740,7 +814,7 @@ public partial class MainWindow : Window
         ShowDialog(CreateDialogContainer(fixedTop, lstParts, btnPanel));
     }
 
-    private async Task DoExtractChunks(Stream sourceStream, string fileName, string outputDir, long chunkSizeBytes, string hash, List<int> selectedIndices)
+    private async Task DoExtractChunks(Stream sourceStream, string fileName, string outputDir, long chunkSizeBytes, string hash, List<int> selectedIndices, CancellationToken ct)
     {
         Log("─────────────────────────────────");
         try
@@ -753,18 +827,27 @@ public partial class MainWindow : Window
             int extractedCount = 0;
             foreach (int i in selectedIndices)
             {
+                ct.ThrowIfCancellationRequested();
                 long partActualSize = Math.Min(chunkSizeBytes, fileSize - (long)i * chunkSizeBytes);
                 SetProgress(extractedCount, selectedIndices.Count, "Extracting Chunks", $"Writing part {i}...");
                 var prog = new Progress<long>(b => {
                     Dispatcher.Invoke(() => SetProgress(extractedCount + (double)b/partActualSize, selectedIndices.Count, "Extracting Chunks", $"Part {i}: {FormatBytes(b)} / {FormatBytes(partActualSize)}"));
                 });
-                await Task.Run(() => _extractor.ExtractChunk(sourceStream, fileName, i, chunkSizeBytes, outputDir, hash, prog));
+                await Task.Run(() => _extractor.ExtractChunk(sourceStream, fileName, i, chunkSizeBytes, outputDir, hash, prog, ct), ct);
                 Log($"✓ Part {i} complete");
                 extractedCount++;
             }
             
             ClearProgress("Chunking Complete");
             MessageBox.Show($"Successfully extracted {selectedIndices.Count} chunks.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Chunk extraction cancelled. Incomplete chunk removed.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Chunk extraction was cancelled. Any partially written chunk was removed, and previously completed chunks were kept.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
         {
@@ -777,7 +860,13 @@ public partial class MainWindow : Window
     // 2. REBUILD (Insert Chunks)
     private void BtnToolRebuild_Click(object sender, RoutedEventArgs e)
     {
-        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppk")).ToList();
+        if (IsTaskRunning)
+        {
+            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppk", StringComparison.OrdinalIgnoreCase)).ToList();
         OpenRebuildDialog(selected.Select(f => f.FullPath).ToArray());
     }
 
@@ -799,22 +888,34 @@ public partial class MainWindow : Window
 
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
-        btnCancel.Click += (s,ev) => CloseDialog();
+        btnCancel.Click += (s,ev) => {
+            if (IsTaskRunning)
+            {
+                ConfirmAndCancelActiveTask();
+                return;
+            }
+            CloseDialog();
+        };
         var btnStart = new Button { Content = "Insert", Style = (Style)FindResource("AccentBtn") };
         
         btnStart.Click += async (s,ev) => {
+            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
             string filesStr = txtFiles.Text;
             string outDir = outField.TextBox.Text;
             if (string.IsNullOrEmpty(filesStr) || string.IsNullOrEmpty(outDir)) return;
             var files = filesStr.Split(';', StringSplitOptions.RemoveEmptyEntries).ToArray();
             
             btnStart.IsEnabled = false;
+            _activeTaskCts = new CancellationTokenSource();
+            var ct = _activeTaskCts.Token;
             try
             {
-                await DoRebuild(files, outDir);
+                await DoRebuild(files, outDir, ct);
             }
             finally
             {
+                _activeTaskCts?.Dispose();
+                _activeTaskCts = null;
                 btnStart.IsEnabled = true;
             }
         };
@@ -825,7 +926,7 @@ public partial class MainWindow : Window
         ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
-    private async Task DoRebuild(string[] chunkFiles, string targetDirOrFile)
+    private async Task DoRebuild(string[] chunkFiles, string targetDirOrFile, CancellationToken ct)
     {
         Log("─────────────────────────────────");
         try
@@ -833,11 +934,12 @@ public partial class MainWindow : Window
             string newTargetLoc = targetDirOrFile;
             for (int i = 0; i < chunkFiles.Length; i++)
             {
+                ct.ThrowIfCancellationRequested();
                 var f = chunkFiles[i];
                 if (!File.Exists(f)) continue;
                 SetProgress(i, chunkFiles.Length, "Inserting Parts", $"Inserting {Path.GetFileName(f)}...");
                 var prog = new Progress<long>();
-                await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(f, newTargetLoc, prog));
+                await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(f, newTargetLoc, prog, ct), ct);
                 
                 var state = _rebuilder.GetProgress(newTargetLoc);
                 if (state != null)
@@ -852,11 +954,13 @@ public partial class MainWindow : Window
                 }
             }
 
+            ct.ThrowIfCancellationRequested();
+
             var rebuildState = _rebuilder.GetProgress(newTargetLoc);
             if (rebuildState != null && rebuildState.Received.Count == rebuildState.Total)
             {
                 Log("All parts inserted! Auto-starting finalisation...");
-                await DoFinalise(chunkFiles[0], newTargetLoc);
+                await DoFinalise(chunkFiles[0], newTargetLoc, ct);
             }
             else
             {
@@ -864,6 +968,13 @@ public partial class MainWindow : Window
                 MessageBox.Show($"Inserted {chunkFiles.Length} chunks. More required.", "Success");
                 if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Chunk insertion cancelled. Target sparse file preserved; missing parts remain required.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Chunk insertion was cancelled. The target file has been preserved, and any uninserted parts remain required.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
         {
@@ -873,7 +984,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task DoFinalise(string chunkFile, string targetFile)
+    private async Task DoFinalise(string chunkFile, string targetFile, CancellationToken ct)
     {
         try
         {
@@ -884,7 +995,9 @@ public partial class MainWindow : Window
                 using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8);
                 var meta = ChunkMetadata.ReadFrom(reader);
                 sourceHash = meta.SourceFileHash;
-            });
+            }, ct);
+
+            ct.ThrowIfCancellationRequested();
 
             var embedState = _rebuilder.GetProgress(targetFile);
             long displaySize = Math.Max(embedState?.ContentSize ?? 1, 0);
@@ -894,19 +1007,28 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() => SetProgress(b, displaySize, "Verifying Hash"));
             });
 
-            await Task.Run(() => _rebuilder.Finalise(targetFile, sourceHash, prog));
+            await Task.Run(() => _rebuilder.Finalise(targetFile, sourceHash, prog, ct), ct);
             Log("✓ Hash matches — file is intact!");
             
+            ct.ThrowIfCancellationRequested();
+
             if (FolderPacker.IsPackedFolder(targetFile))
             {
                 string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
                 SetIndeterminate("Unpacking Folder", "Restoring folder...");
-                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>()));
+                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>(), ct), ct);
                 Log($"✓ Extracted folder to {destDir}");
             }
             
             ClearProgress("Finalisation Complete");
             MessageBox.Show("Rebuild successful! The file is completely intact.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Finalisation cancelled.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Finalisation / verification was cancelled.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
             if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
@@ -920,6 +1042,12 @@ public partial class MainWindow : Window
     // 3. CREATE ARCHIVE (V3)
     private void BtnToolCreateArchive_Click(object sender, RoutedEventArgs e)
     {
+        if (IsTaskRunning)
+        {
+            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
         if (selected.Count == 0 && !string.IsNullOrEmpty(TxtCurrentPath.Text) && TxtCurrentPath.Text != "This PC")
         {
@@ -949,10 +1077,18 @@ public partial class MainWindow : Window
 
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
-        btnCancel.Click += (s,ev) => CloseDialog();
+        btnCancel.Click += (s,ev) => {
+            if (IsTaskRunning)
+            {
+                ConfirmAndCancelActiveTask();
+                return;
+            }
+            CloseDialog();
+        };
         var btnStart = new Button { Content = "Create", Style = (Style)FindResource("AccentBtn") };
         
         btnStart.Click += async (s,ev) => {
+            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
             string targetDir = Directory.Exists(sourcePath) ? sourcePath : (Path.GetDirectoryName(sourcePath) ?? "C:\\");
             string baseName = Path.GetFileName(sourcePath);
             string defaultName = baseName + ".oppaku-archive";
@@ -976,12 +1112,16 @@ public partial class MainWindow : Window
                 string pwd = txtPwd.Password;
                 var compression = (OppakuCompressionLevel)cboCompression.SelectedItem;
                 btnStart.IsEnabled = false;
+                _activeTaskCts = new CancellationTokenSource();
+                var ct = _activeTaskCts.Token;
                 try
                 {
-                    await DoCreateArchive(sourcePath, saveDialog.FileName, string.IsNullOrEmpty(pwd) ? null : pwd, compression);
+                    await DoCreateArchive(sourcePath, saveDialog.FileName, string.IsNullOrEmpty(pwd) ? null : pwd, compression, ct);
                 }
                 finally
                 {
+                    _activeTaskCts?.Dispose();
+                    _activeTaskCts = null;
                     btnStart.IsEnabled = true;
                 }
             }
@@ -993,20 +1133,26 @@ public partial class MainWindow : Window
         ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
-    private async Task DoCreateArchive(string sourcePath, string outPath, string? pwd, OppakuCompressionLevel compression)
+    private async Task DoCreateArchive(string sourcePath, string outPath, string? pwd, OppakuCompressionLevel compression, CancellationToken ct)
     {
         Log("─────────────────────────────────");
         SetIndeterminate("Creating Archive", "Packing into secure archive...");
         try
         {
             var prog = new Progress<long>(b => {
-                // Approximate progress for UI responsiveness during solid compression
                 Dispatcher.Invoke(() => SetIndeterminate("Creating Archive", $"Compressing: {FormatBytes(b)} processed..."));
             });
-            await Task.Run(() => ArchivePacker.Pack(sourcePath, outPath, pwd, compression, prog));
+            await Task.Run(() => ArchivePacker.Pack(sourcePath, outPath, pwd, compression, prog, ct), ct);
             Log("✓ Archive created successfully");
             ClearProgress("Complete");
             MessageBox.Show("Archive created successfully.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Archive creation cancelled. Incomplete archive deleted.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Archive creation was cancelled. The incomplete archive file was deleted.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
             if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
@@ -1020,7 +1166,13 @@ public partial class MainWindow : Window
     // 4. EXTRACT ARCHIVE (V3)
     private void BtnToolExtractArchive_Click(object sender, RoutedEventArgs e)
     {
-        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppaku-archive")).ToList();
+        if (IsTaskRunning)
+        {
+            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase)).ToList();
         if (selected.Count == 0)
         {
             MessageBox.Show("Please select an .oppaku-archive file.");
@@ -1043,21 +1195,33 @@ public partial class MainWindow : Window
 
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
         var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
-        btnCancel.Click += (s,ev) => CloseDialog();
+        btnCancel.Click += (s,ev) => {
+            if (IsTaskRunning)
+            {
+                ConfirmAndCancelActiveTask();
+                return;
+            }
+            CloseDialog();
+        };
         var btnStart = new Button { Content = "Extract", Style = (Style)FindResource("AccentBtn") };
         
         btnStart.Click += async (s,ev) => {
+            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
             string outDir = outField.TextBox.Text;
             string pwd = txtPwd.Password;
             if (string.IsNullOrEmpty(outDir)) return;
             
             btnStart.IsEnabled = false;
+            _activeTaskCts = new CancellationTokenSource();
+            var ct = _activeTaskCts.Token;
             try
             {
-                await DoExtractArchive(sourcePath, outDir, string.IsNullOrEmpty(pwd) ? null : pwd);
+                await DoExtractArchive(sourcePath, outDir, string.IsNullOrEmpty(pwd) ? null : pwd, ct);
             }
             finally
             {
+                _activeTaskCts?.Dispose();
+                _activeTaskCts = null;
                 btnStart.IsEnabled = true;
             }
         };
@@ -1068,7 +1232,7 @@ public partial class MainWindow : Window
         ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
     }
 
-    private async Task DoExtractArchive(string archivePath, string outPath, string? pwd)
+    private async Task DoExtractArchive(string archivePath, string outPath, string? pwd, CancellationToken ct)
     {
         Log("─────────────────────────────────");
         var fi = new FileInfo(archivePath);
@@ -1089,10 +1253,17 @@ public partial class MainWindow : Window
                 return overwrite;
             };
 
-            await Task.Run(() => ArchivePacker.Unpack(archivePath, outPath, pwd, onOverwriteConfirm, prog));
+            await Task.Run(() => ArchivePacker.Unpack(archivePath, outPath, pwd, onOverwriteConfirm, prog, ct), ct);
             Log("✓ Archive extracted successfully");
             ClearProgress("Complete");
             MessageBox.Show("Archive extracted successfully.", "Success");
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Archive extraction cancelled. Incomplete file removed.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Archive extraction was cancelled.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
             if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (Exception ex)
@@ -1106,6 +1277,12 @@ public partial class MainWindow : Window
     // 5. HASH CHECK
     private async void BtnToolHashCheck_Click(object sender, RoutedEventArgs e)
     {
+        if (IsTaskRunning)
+        {
+            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
         if (selected.Count != 1)
         {
@@ -1137,21 +1314,25 @@ public partial class MainWindow : Window
 
         Log("─────────────────────────────────");
         SetIndeterminate("Hash Check", "Verifying file integrity...");
+        _activeTaskCts = new CancellationTokenSource();
+        var ct = _activeTaskCts.Token;
         try
         {
             var prog = new Progress<long>(b => {
                 Dispatcher.Invoke(() => SetProgress(b, state.ContentSize, "Verifying Hash"));
             });
 
-            await Task.Run(() => _rebuilder.Finalise(targetFile, state.ExpectedHash, prog));
+            await Task.Run(() => _rebuilder.Finalise(targetFile, state.ExpectedHash, prog, ct), ct);
             
             Log("✓ Hash matches — file is intact!");
             
+            ct.ThrowIfCancellationRequested();
+
             if (FolderPacker.IsPackedFolder(targetFile))
             {
                 string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
                 SetIndeterminate("Unpacking Folder", "Restoring folder...");
-                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>()));
+                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>(), ct), ct);
                 Log($"✓ Extracted folder to {destDir}");
             }
             
@@ -1159,11 +1340,23 @@ public partial class MainWindow : Window
             MessageBox.Show("Rebuild successful! The file is completely intact and finalised.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
+        catch (OperationCanceledException)
+        {
+            Log("⚠️ Verification cancelled.");
+            ClearProgress("Cancelled");
+            MessageBox.Show("Hash verification was cancelled.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
+        }
         catch (Exception ex)
         {
             Log($"Verification failed: {ex.Message}");
             ClearProgress("Failed");
             MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _activeTaskCts?.Dispose();
+            _activeTaskCts = null;
         }
     }
 }

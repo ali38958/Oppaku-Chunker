@@ -1,7 +1,9 @@
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using Oppaku.Core.Models;
 using Oppaku.Core.Helpers;
 using Oppaku.Core.Exceptions;
@@ -48,7 +50,7 @@ public class Rebuilder
         }
     }
 
-    public string InsertChunk(string chunkBinPath, string targetLocation, IProgress<long>? progress = null)
+    public string InsertChunk(string chunkBinPath, string targetLocation, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(chunkBinPath))
             throw new OppakuException(ErrorCode.InvalidChunk, $"Chunk file not found: {chunkBinPath}");
@@ -103,6 +105,8 @@ public class Rebuilder
 
         while (bytesRemaining > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             int bytesToRead = (int)Math.Min(buffer.Length, bytesRemaining);
             int bytesRead = sourcePayloadStream.Read(buffer, 0, bytesToRead);
             if (bytesRead == 0) break;
@@ -112,13 +116,19 @@ public class Rebuilder
             bytesRemaining -= bytesRead;
             bytesWritten += bytesRead;
 
-            if (progress != null && sw.ElapsedMilliseconds >= ProgressIntervalMs)
+            if (progress != null && (sw.ElapsedMilliseconds >= ProgressIntervalMs || bytesWritten == bytesRead))
             {
                 progress.Report(bytesWritten);
                 sw.Restart();
             }
+            cancellationToken.ThrowIfCancellationRequested();
         }
+
+        if (bytesRemaining > 0)
+            throw new OppakuException(ErrorCode.InvalidChunk, "Failed to read the expected number of bytes from chunk");
+
         progress?.Report(bytesWritten); // final
+        cancellationToken.ThrowIfCancellationRequested();
 
         sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         string computedChecksum = $"sha256:{Convert.ToHexString(sha256.Hash!).ToLowerInvariant()}";
@@ -140,7 +150,7 @@ public class Rebuilder
         return targetFilePath;
     }
 
-    public void Finalise(string targetFilePath, string sourceFileHash, IProgress<long>? progress = null)
+    public void Finalise(string targetFilePath, string sourceFileHash, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(targetFilePath))
             throw new OppakuException(ErrorCode.InvalidChunk, "Target file does not exist");
@@ -178,9 +188,11 @@ public class Rebuilder
         }
 
         // Hash only the content portion [0, contentSize)
-        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath, contentSize, progress);
+        string rebuiltHash = ChecksumHelper.ComputeFileHash(targetFilePath, contentSize, progress, cancellationToken);
         if (rebuiltHash != sourceFileHash)
             throw new OppakuException(ErrorCode.ChecksumMismatch, "Final rebuilt file hash does not match original source hash");
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Strip metadata zone — truncate file to exact content size
         using (var fs = new FileStream(targetFilePath, FileMode.Open, FileAccess.Write, FileShare.None))

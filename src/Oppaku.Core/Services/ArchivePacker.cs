@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Threading;
 using Oppaku.Core.Models;
 
 namespace Oppaku.Core.Services;
@@ -13,94 +14,122 @@ public static class ArchivePacker
     private const string MagicV1 = "OPPAKARC";
     private const string MagicV2 = "OPPAKAR2";
 
-    public static void Pack(string sourcePath, string outputPath, string? password = null, OppakuCompressionLevel compression = OppakuCompressionLevel.None, IProgress<long>? progress = null)
+    public static void Pack(string sourcePath, string outputPath, string? password = null, OppakuCompressionLevel compression = OppakuCompressionLevel.None, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         bool isFolder = Directory.Exists(sourcePath);
         string[] files = isFolder 
             ? Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories).Where(f => !f.Equals(outputPath, StringComparison.OrdinalIgnoreCase)).ToArray()
             : new[] { sourcePath };
         
-        using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
+        bool packSucceeded = false;
 
-        // 1. Write Header
-        writer.Write(MagicV2);
-        
-        bool isEncrypted = !string.IsNullOrEmpty(password);
-        writer.Write(isEncrypted);
-        writer.Write((byte)compression);
-
-        byte[]? key = null;
-        if (isEncrypted)
+        try
         {
-            byte[] salt = new byte[16];
-            RandomNumberGenerator.Fill(salt);
-            writer.Write(salt);
-            key = Rfc2898DeriveBytes.Pbkdf2(password!, salt, 100_000, HashAlgorithmName.SHA256, 32);
-        }
-
-        writer.Write(files.Length);
-
-        foreach (var file in files)
-        {
-            string relPath = isFolder ? Path.GetRelativePath(sourcePath, file) : Path.GetFileName(file);
-            var fi = new FileInfo(file);
-            writer.Write(relPath);
-            writer.Write(fi.Length);
-        }
-        
-        writer.Flush();
-
-        // 2. Setup Solid Pipeline: Raw -> Brotli -> AES -> File
-        Stream outStream = fs;
-        CryptoStream? cryptoStream = null;
-        BrotliStream? brotliStream = null;
-        
-        if (isEncrypted)
-        {
-            using var aes = Aes.Create();
-            aes.Mode = CipherMode.CBC;
-            aes.Padding = PaddingMode.PKCS7;
-            aes.GenerateIV();
-            
-            writer.Write(aes.IV);
-            writer.Flush();
-            
-            var encryptor = aes.CreateEncryptor(key!, aes.IV);
-            cryptoStream = new CryptoStream(outStream, encryptor, CryptoStreamMode.Write, leaveOpen: true);
-            outStream = cryptoStream;
-        }
-
-        if (compression != OppakuCompressionLevel.None)
-        {
-            CompressionLevel cl = compression switch {
-                OppakuCompressionLevel.Normal => CompressionLevel.Fastest,
-                OppakuCompressionLevel.High => CompressionLevel.Optimal,
-                OppakuCompressionLevel.Extreme => CompressionLevel.SmallestSize,
-                _ => CompressionLevel.Optimal
-            };
-            brotliStream = new BrotliStream(outStream, cl, leaveOpen: true);
-            outStream = brotliStream;
-        }
-
-        byte[] buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
-        long totalWritten = 0;
-
-        foreach (var file in files)
-        {
-            using var sourceStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-            int bytesRead;
-            while ((bytesRead = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
+            using (var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
             {
-                outStream.Write(buffer, 0, bytesRead);
-                totalWritten += bytesRead;
-                progress?.Report(totalWritten);
+                // 1. Write Header
+                writer.Write(MagicV2);
+                
+                bool isEncrypted = !string.IsNullOrEmpty(password);
+                writer.Write(isEncrypted);
+                writer.Write((byte)compression);
+
+                byte[]? key = null;
+                if (isEncrypted)
+                {
+                    byte[] salt = new byte[16];
+                    RandomNumberGenerator.Fill(salt);
+                    writer.Write(salt);
+                    key = Rfc2898DeriveBytes.Pbkdf2(password!, salt, 100_000, HashAlgorithmName.SHA256, 32);
+                }
+
+                writer.Write(files.Length);
+
+                foreach (var file in files)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string relPath = isFolder ? Path.GetRelativePath(sourcePath, file) : Path.GetFileName(file);
+                    var fi = new FileInfo(file);
+                    writer.Write(relPath);
+                    writer.Write(fi.Length);
+                }
+                
+                writer.Flush();
+
+                // 2. Setup Solid Pipeline: Raw -> Brotli -> AES -> File
+                Stream outStream = fs;
+                CryptoStream? cryptoStream = null;
+                BrotliStream? brotliStream = null;
+
+                try
+                {
+                    if (isEncrypted)
+                    {
+                        using var aes = Aes.Create();
+                        aes.Mode = CipherMode.CBC;
+                        aes.Padding = PaddingMode.PKCS7;
+                        aes.GenerateIV();
+                        
+                        writer.Write(aes.IV);
+                        writer.Flush();
+                        
+                        var encryptor = aes.CreateEncryptor(key!, aes.IV);
+                        cryptoStream = new CryptoStream(outStream, encryptor, CryptoStreamMode.Write, leaveOpen: true);
+                        outStream = cryptoStream;
+                    }
+
+                    if (compression != OppakuCompressionLevel.None)
+                    {
+                        CompressionLevel cl = compression switch {
+                            OppakuCompressionLevel.Normal => CompressionLevel.Fastest,
+                            OppakuCompressionLevel.High => CompressionLevel.Optimal,
+                            OppakuCompressionLevel.Extreme => CompressionLevel.SmallestSize,
+                            _ => CompressionLevel.Optimal
+                        };
+                        brotliStream = new BrotliStream(outStream, cl, leaveOpen: true);
+                        outStream = brotliStream;
+                    }
+
+                    byte[] buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
+                    long totalWritten = 0;
+
+                    foreach (var file in files)
+                    {
+                        using var sourceStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+                        int bytesRead;
+                        while ((bytesRead = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            outStream.Write(buffer, 0, bytesRead);
+                            totalWritten += bytesRead;
+                            progress?.Report(totalWritten);
+                        }
+                    }
+                    
+                    brotliStream?.Dispose();
+                    brotliStream = null;
+
+                    cryptoStream?.FlushFinalBlock();
+                    cryptoStream?.Dispose();
+                    cryptoStream = null;
+
+                    packSucceeded = true;
+                }
+                finally
+                {
+                    brotliStream?.Dispose();
+                    cryptoStream?.Dispose();
+                }
             }
         }
-        
-        brotliStream?.Dispose();
-        cryptoStream?.FlushFinalBlock();
-        cryptoStream?.Dispose();
+        finally
+        {
+            if (!packSucceeded && File.Exists(outputPath))
+            {
+                try { File.Delete(outputPath); } catch { /* Ignore cleanup errors */ }
+            }
+        }
     }
 
     public static bool IsPackedArchive(string filePath)
@@ -118,7 +147,7 @@ public static class ArchivePacker
         }
     }
 
-    public static void Unpack(string archivePath, string destDir, string? password = null, Func<string, bool>? onOverwriteConfirm = null, IProgress<long>? progress = null)
+    public static void Unpack(string archivePath, string destDir, string? password = null, Func<string, bool>? onOverwriteConfirm = null, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
@@ -157,7 +186,7 @@ public static class ArchivePacker
 
         if (!isV2)
         {
-            UnpackV1(fs, reader, destDir, fileEntries, isEncrypted, key, onOverwriteConfirm, progress);
+            UnpackV1(fs, reader, destDir, fileEntries, isEncrypted, key, onOverwriteConfirm, progress, cancellationToken);
             return;
         }
 
@@ -185,54 +214,69 @@ public static class ArchivePacker
         byte[] buffer = new byte[4 * 1024 * 1024];
         long totalExtracted = 0;
 
-        foreach (var entry in fileEntries)
+        try
         {
-            string targetPath = Path.Combine(destDir, entry.Path);
-            
-            bool skipFile = false;
-            if (File.Exists(targetPath) && onOverwriteConfirm != null)
+            foreach (var entry in fileEntries)
             {
-                skipFile = !onOverwriteConfirm(entry.Path);
-            }
-
-            if (!skipFile)
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            }
-
-            long bytesRemaining = entry.OriginalSize;
-            FileStream? destStream = skipFile ? null : new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan);
-
-            try
-            {
-                while (bytesRemaining > 0)
+                cancellationToken.ThrowIfCancellationRequested();
+                string targetPath = Path.Combine(destDir, entry.Path);
+                
+                bool skipFile = false;
+                if (File.Exists(targetPath) && onOverwriteConfirm != null)
                 {
-                    int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
-                    int bytesRead = inStream.Read(buffer, 0, toRead);
-                    
-                    if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
+                    skipFile = !onOverwriteConfirm(entry.Path);
+                }
 
-                    if (destStream != null)
+                if (!skipFile)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+                }
+
+                long bytesRemaining = entry.OriginalSize;
+                FileStream? destStream = skipFile ? null : new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan);
+                bool fileExtractCompleted = false;
+
+                try
+                {
+                    while (bytesRemaining > 0)
                     {
-                        destStream.Write(buffer, 0, bytesRead);
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
+                        int bytesRead = inStream.Read(buffer, 0, toRead);
+                        
+                        if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
+
+                        if (destStream != null)
+                        {
+                            destStream.Write(buffer, 0, bytesRead);
+                        }
+                        
+                        bytesRemaining -= bytesRead;
+                        totalExtracted += bytesRead;
+                        progress?.Report(totalExtracted);
                     }
-                    
-                    bytesRemaining -= bytesRead;
-                    totalExtracted += bytesRead;
-                    progress?.Report(totalExtracted);
+
+                    fileExtractCompleted = true;
+                }
+                finally
+                {
+                    destStream?.Dispose();
+                    if (!skipFile && !fileExtractCompleted && File.Exists(targetPath))
+                    {
+                        try { File.Delete(targetPath); } catch { /* Ignore cleanup errors */ }
+                    }
                 }
             }
-            finally
-            {
-                destStream?.Dispose();
-            }
         }
-        
-        brotliStream?.Dispose();
-        cryptoStream?.Dispose();
+        finally
+        {
+            brotliStream?.Dispose();
+            cryptoStream?.Dispose();
+        }
     }
 
-    private static void UnpackV1(FileStream fs, BinaryReader reader, string destDir, List<(string Path, long OriginalSize)> fileEntries, bool isEncrypted, byte[]? key, Func<string, bool>? onOverwriteConfirm, IProgress<long>? progress)
+    private static void UnpackV1(FileStream fs, BinaryReader reader, string destDir, List<(string Path, long OriginalSize)> fileEntries, bool isEncrypted, byte[]? key, Func<string, bool>? onOverwriteConfirm, IProgress<long>? progress, CancellationToken cancellationToken = default)
     {
         byte[] buffer = new byte[4 * 1024 * 1024];
         long totalExtracted = 0;
@@ -243,6 +287,7 @@ public static class ArchivePacker
 
         foreach (var entry in fileEntries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string targetPath = Path.Combine(destDir, entry.Path);
             
             bool skipFile = false;
@@ -260,6 +305,7 @@ public static class ArchivePacker
             long bytesToReadFromArchive = entry.OriginalSize;
 
             FileStream? destStream = skipFile ? null : new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan);
+            bool fileExtractCompleted = false;
 
             try
             {
@@ -272,6 +318,8 @@ public static class ArchivePacker
                     long bytesRemaining = paddedSize;
                     while (bytesRemaining > 0)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+
                         int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
                         int bytesRead = fs.Read(buffer, 0, toRead);
                         if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
@@ -299,6 +347,8 @@ public static class ArchivePacker
                     long bytesRemaining = bytesToReadFromArchive;
                     while (bytesRemaining > 0)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+
                         int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
                         int bytesRead = fs.Read(buffer, 0, toRead);
                         if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
@@ -309,10 +359,16 @@ public static class ArchivePacker
                         progress?.Report(totalExtracted);
                     }
                 }
+
+                fileExtractCompleted = true;
             }
             finally
             {
                 destStream?.Dispose();
+                if (!skipFile && !fileExtractCompleted && File.Exists(targetPath))
+                {
+                    try { File.Delete(targetPath); } catch { /* Ignore cleanup errors */ }
+                }
             }
         }
     }

@@ -16,7 +16,7 @@ public class SparseFileHelperTests
 
             var info = new FileInfo(tempPath);
             Assert.True(info.Exists);
-            Assert.Equal(targetSize, info.Length);
+            Assert.Equal(targetSize + SparseFileHelper.MetadataReserve, info.Length);
             
             // Check if Sparse file attribute is set
             Assert.True((info.Attributes & FileAttributes.SparseFile) == FileAttributes.SparseFile);

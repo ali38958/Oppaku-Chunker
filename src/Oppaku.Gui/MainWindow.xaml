@@ -232,10 +232,11 @@
                     <RowDefinition Height="0" x:Name="LogRow"/>
                 </Grid.RowDefinitions>
 
-                <!-- Title + percent + toggle -->
+                <!-- Title + percent + cancel + toggle -->
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -254,6 +255,15 @@
                                Margin="8,0"
                                VerticalAlignment="Center"/>
                     <Button Grid.Column="2"
+                            x:Name="BtnCancelGlobalTask"
+                            Style="{DynamicResource GhostBtn}"
+                            Content="✕ Cancel"
+                            FontSize="11"
+                            Padding="8,3"
+                            Margin="0,0,6,0"
+                            Visibility="Collapsed"
+                            Click="BtnCancelGlobalTask_Click"/>
+                    <Button Grid.Column="3"
                             x:Name="BtnToggleLog"
                             Style="{DynamicResource GhostBtn}"
                             Content="Log &#x25B2;"
