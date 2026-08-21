@@ -8,8 +8,9 @@
   [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
   [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Cross--Platform-0078D6?style=flat-square&logo=windows)](https://github.com/ali38958/Oppaku-Chunker)
   [![License: Personal Use Only](https://img.shields.io/badge/License-Personal%20Use%20Only-orange.svg?style=flat-square)](#-license)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
 
-  [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 Dual Interfaces](#-dual-interfaces)
+  [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 Dual Interfaces](#-dual-interfaces) • [🤝 Contributing](#-contributing) • [📄 License](#-license)
 
 </div>
 
@@ -124,9 +125,27 @@ dotnet publish src\Oppaku.Cli -c Release -r win-x64 --self-contained
 
 ---
 
-## 📄 License
+## 🤝 Contributing
 
-This project is free for **personal, non-commercial use only**. Unauthorized redistribution, public mirroring, re-uploading binaries, commercial use, or claiming ownership is strictly prohibited. See the [LICENSE.md](LICENSE.md) file for full terms and conditions.
+Contributions from the community are warmly welcomed! If you'd like to fix a bug, optimize streaming performance, expand test coverage, or propose an enhancement:
+
+1. Read our [CONTRIBUTING.md](CONTRIBUTING.md) guide for architecture conventions, coding standards, and PR workflows.
+2. Fork the repository on GitHub and create a dedicated branch for your fix/feature.
+3. Ensure all tests pass cleanly using `dotnet test`.
+4. Open a Pull Request with a clear description of your changes and verification steps.
+
+> [!NOTE]
+> All pull requests are reviewed by Muhammad Ali. By submitting a contribution, you agree that your work is licensed under the [Oppaku License](LICENSE.md) and that overall project ownership, branding, and release management remain with the author.
+
+---
+
+## 📄 License & Ownership
+
+Oppaku is created, maintained, and owned by **Muhammad Ali**.
+
+This software is licensed for **personal, non-commercial use only**. Community contributions and patches via Pull Requests are welcomed under the terms set in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Unauthorized redistribution, public mirroring, re-uploading binaries, commercial use, or claiming ownership of this software is strictly prohibited. For complete terms and legal details, please read [LICENSE.md](LICENSE.md).
 
 <div align="center">
   <br />
