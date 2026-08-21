@@ -130,7 +130,7 @@ This project is proprietary and copyrighted by Muhammad Ali. Unauthorized copyin
 
 <div align="center">
   <br />
-  <sub>Built with ❤️ by <b>Muhammad Ali</b></sub>
+  <sub>Made by <b>Muhammad Ali</b></sub>
   <br />
   <a href="https://github.com/ali38958">GitHub Profile</a> • <a href="https://github.com/ali38958/Oppaku-Chunker">Repository</a>
 </div>
