@@ -7,7 +7,7 @@
 
   [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
   [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Cross--Platform-0078D6?style=flat-square&logo=windows)](https://github.com/ali38958/Oppaku-Chunker)
-  [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg?style=flat-square)](#-license)
+  [![License: Personal Use Only](https://img.shields.io/badge/License-Personal%20Use%20Only-orange.svg?style=flat-square)](#-license)
 
   [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 Dual Interfaces](#-dual-interfaces)
 
@@ -126,7 +126,7 @@ dotnet publish src\Oppaku.Cli -c Release -r win-x64 --self-contained
 
 ## 📄 License
 
-This project is proprietary and copyrighted by Muhammad Ali. Unauthorized copying, modification, distribution, or claiming ownership of this software is strictly prohibited. See the [LICENSE.md](LICENSE.md) file for more details.
+This project is free for **personal, non-commercial use only**. Unauthorized redistribution, public mirroring, re-uploading binaries, commercial use, or claiming ownership is strictly prohibited. See the [LICENSE.md](LICENSE.md) file for full terms and conditions.
 
 <div align="center">
   <br />
