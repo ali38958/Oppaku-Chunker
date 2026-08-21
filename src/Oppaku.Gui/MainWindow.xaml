@@ -280,7 +280,7 @@
                     </Grid.RowDefinitions>
                     <ProgressBar x:Name="PbGlobalProgress"
                                  Minimum="0" Maximum="100"
-                                 Height="4"/>
+                                 Height="6"/>
                     <TextBlock x:Name="TxtProgressDetail"
                                Grid.Row="1"
                                Text=""

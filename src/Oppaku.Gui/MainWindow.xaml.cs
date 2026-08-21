@@ -469,8 +469,9 @@ public partial class MainWindow : Window
     {
         TxtGlobalTitle.Text = title;
         PbGlobalProgress.IsIndeterminate = false;
+        PbGlobalProgress.Minimum = 0;
         PbGlobalProgress.Maximum = Math.Max(max, 1);
-        PbGlobalProgress.Value = value;
+        PbGlobalProgress.Value = Math.Min(Math.Max(value, 0), PbGlobalProgress.Maximum);
         TxtProgressPercent.Text = max > 0 ? $"{value / max * 100:0.0}%" : "";
         TxtProgressDetail.Text = detail;
         if (BtnCancelGlobalTask != null) BtnCancelGlobalTask.Visibility = IsTaskRunning ? Visibility.Visible : Visibility.Collapsed;
@@ -824,22 +825,37 @@ public partial class MainWindow : Window
             int totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
             Log($"Hash: {hash}. Total parts: {totalChunks}");
             
+            long totalBytesToExtract = selectedIndices.Sum(i => Math.Min(chunkSizeBytes, fileSize - (long)i * chunkSizeBytes));
+            if (totalBytesToExtract <= 0) totalBytesToExtract = 1;
+
+            long totalBytesExtractedSoFar = 0;
             int extractedCount = 0;
+
             foreach (int i in selectedIndices)
             {
                 ct.ThrowIfCancellationRequested();
                 long partActualSize = Math.Min(chunkSizeBytes, fileSize - (long)i * chunkSizeBytes);
-                SetProgress(extractedCount, selectedIndices.Count, "Extracting Chunks", $"Writing part {i}...");
+                long baseBytes = totalBytesExtractedSoFar;
+
+                SetProgress(baseBytes, totalBytesToExtract, "Extracting Chunks", $"Writing part {i} ({FormatBytes(baseBytes)} / {FormatBytes(totalBytesToExtract)})...");
                 var prog = new Progress<long>(b => {
-                    Dispatcher.Invoke(() => SetProgress(extractedCount + (double)b/partActualSize, selectedIndices.Count, "Extracting Chunks", $"Part {i}: {FormatBytes(b)} / {FormatBytes(partActualSize)}"));
+                    long currentTotal = baseBytes + b;
+                    Dispatcher.Invoke(() => SetProgress(
+                        currentTotal, 
+                        totalBytesToExtract, 
+                        "Extracting Chunks", 
+                        $"Part {i} ({extractedCount + 1}/{selectedIndices.Count}): {FormatBytes(currentTotal)} / {FormatBytes(totalBytesToExtract)}"
+                    ));
                 });
                 await Task.Run(() => _extractor.ExtractChunk(sourceStream, fileName, i, chunkSizeBytes, outputDir, hash, prog, ct), ct);
-                Log($"✓ Part {i} complete");
+                
+                totalBytesExtractedSoFar += partActualSize;
                 extractedCount++;
+                Log($"✓ Part {i} complete ({FormatBytes(partActualSize)})");
             }
             
             ClearProgress("Chunking Complete");
-            MessageBox.Show($"Successfully extracted {selectedIndices.Count} chunks.", "Success");
+            MessageBox.Show($"Successfully extracted {selectedIndices.Count} chunks ({FormatBytes(totalBytesExtractedSoFar)}).", "Success");
             if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
         }
         catch (OperationCanceledException)
@@ -931,26 +947,72 @@ public partial class MainWindow : Window
         Log("─────────────────────────────────");
         try
         {
+            var validChunkFiles = chunkFiles.Where(File.Exists).ToArray();
+            if (validChunkFiles.Length == 0)
+            {
+                MessageBox.Show("No valid .oppk chunk files were found.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Calculate total byte payload size across all selected chunks
+            long totalBytesToInsert = 0;
+            var chunkPayloadSizes = new Dictionary<string, long>();
+            foreach (var f in validChunkFiles)
+            {
+                long size = 0;
+                try
+                {
+                    using var s = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var r = new BinaryReader(s, System.Text.Encoding.UTF8);
+                    var m = ChunkMetadata.ReadFrom(r);
+                    size = m.ActualChunkSize;
+                }
+                catch
+                {
+                    size = new FileInfo(f).Length;
+                }
+                chunkPayloadSizes[f] = size;
+                totalBytesToInsert += size;
+            }
+            if (totalBytesToInsert <= 0) totalBytesToInsert = 1;
+
             string newTargetLoc = targetDirOrFile;
-            for (int i = 0; i < chunkFiles.Length; i++)
+            long totalBytesCompletedSoFar = 0;
+
+            for (int i = 0; i < validChunkFiles.Length; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                var f = chunkFiles[i];
-                if (!File.Exists(f)) continue;
-                SetProgress(i, chunkFiles.Length, "Inserting Parts", $"Inserting {Path.GetFileName(f)}...");
-                var prog = new Progress<long>();
+                var f = validChunkFiles[i];
+                long currentChunkSize = chunkPayloadSizes[f];
+                long baseBytes = totalBytesCompletedSoFar;
+
+                SetProgress(baseBytes, totalBytesToInsert, "Inserting Parts", $"Inserting {Path.GetFileName(f)} ({FormatBytes(baseBytes)} / {FormatBytes(totalBytesToInsert)})...");
+                
+                var prog = new Progress<long>(bytesInThisChunk => {
+                    long currentTotal = baseBytes + bytesInThisChunk;
+                    Dispatcher.Invoke(() => SetProgress(
+                        currentTotal, 
+                        totalBytesToInsert, 
+                        "Inserting Parts", 
+                        $"Part {i + 1}/{validChunkFiles.Length} ({Path.GetFileName(f)}): {FormatBytes(currentTotal)} / {FormatBytes(totalBytesToInsert)}"
+                    ));
+                });
+
                 await Task.Run(() => newTargetLoc = _rebuilder.InsertChunk(f, newTargetLoc, prog, ct), ct);
                 
+                totalBytesCompletedSoFar += currentChunkSize;
+                SetProgress(totalBytesCompletedSoFar, totalBytesToInsert, "Inserting Parts", $"{FormatBytes(totalBytesCompletedSoFar)} / {FormatBytes(totalBytesToInsert)}");
+
                 var state = _rebuilder.GetProgress(newTargetLoc);
                 if (state != null)
                 {
                     var missing = Enumerable.Range(0, state.Total).Except(state.Received).ToList();
                     string missingStr = missing.Count > 0 ? string.Join(", ", missing) : "None";
-                    Log($"✓ Inserted {Path.GetFileName(f)} | Parts required: {missingStr}");
+                    Log($"✓ Inserted {Path.GetFileName(f)} ({FormatBytes(currentChunkSize)}) | Parts required: {missingStr}");
                 }
                 else
                 {
-                    Log($"✓ Inserted {Path.GetFileName(f)}");
+                    Log($"✓ Inserted {Path.GetFileName(f)} ({FormatBytes(currentChunkSize)})");
                 }
             }
 
@@ -960,12 +1022,12 @@ public partial class MainWindow : Window
             if (rebuildState != null && rebuildState.Received.Count == rebuildState.Total)
             {
                 Log("All parts inserted! Auto-starting finalisation...");
-                await DoFinalise(chunkFiles[0], newTargetLoc, ct);
+                await DoFinalise(validChunkFiles[0], newTargetLoc, ct);
             }
             else
             {
                 ClearProgress("Insertion Complete");
-                MessageBox.Show($"Inserted {chunkFiles.Length} chunks. More required.", "Success");
+                MessageBox.Show($"Inserted {validChunkFiles.Length} chunk(s) ({FormatBytes(totalBytesCompletedSoFar)}). More required.", "Success");
                 if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
             }
         }
