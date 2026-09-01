@@ -310,6 +310,8 @@ Moving forward, Oppaku is pivoting to become a comprehensive archiving solution.
 - Created WiX Toolset v5 native Windows MSI Installer (`Oppaku-Setup.msi`) with `C:\Oppaku` default target, terminal `PATH` integration, Start Menu / Desktop shortcuts, and Maintenance Mode (Repair & Uninstall).
 - Separated `OppakuGUI.exe` and `oppaku.exe` to prevent Windows case-insensitive collision and ensure `oppaku` command runs directly in terminal with live progress bars.
 - Updated `README.md` and `how_to_use.txt` with installer instructions and chunk size consistency best practices.
+- Bumped version to `0.7.0` across Core, CLI, GUI, and MSI installer with WiX `AllowDowngrades="yes"` for smooth upgrades/repairs.
+- Added CLI version command and flags (`-version`, `--v`, `-v`, `--version`, `version`).
 - Next: Network/cloud streaming hooks and archive management features.
 
 
