@@ -50,13 +50,13 @@
                     <Button x:Name="BtnToolCreateArchive"
                             Style="{DynamicResource ToolbarBtn}"
                             Content="📦 Create Archive"
-                            ToolTip="Pack a file or folder into a secure .oppaku-archive"
+                            ToolTip="Pack a file or folder into an archive (.oppaku-archive or .zip)"
                             Margin="0,0,4,0"
                             Click="BtnToolCreateArchive_Click"/>
                     <Button x:Name="BtnToolExtractArchive"
                             Style="{DynamicResource ToolbarBtn}"
                             Content="📂 Extract Archive"
-                            ToolTip="Extract a .oppaku-archive with zero-space hole-punching"
+                            ToolTip="Extract an archive (.oppaku-archive or .zip)"
                             Click="BtnToolExtractArchive_Click"/>
 
                     <!-- Divider -->

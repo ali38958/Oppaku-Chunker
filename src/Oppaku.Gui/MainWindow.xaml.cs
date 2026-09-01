@@ -424,6 +424,7 @@ public partial class MainWindow : Window
     private void OpenFile(string path)
     {
         if (path.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".oppk", StringComparison.OrdinalIgnoreCase))
         {
             Log($"Selected: {Path.GetFileName(path)}");
@@ -1165,7 +1166,7 @@ public partial class MainWindow : Window
             var saveDialog = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Save Archive As",
-                Filter = "Oppaku Archive (*.oppaku-archive)|*.oppaku-archive",
+                Filter = "Oppaku Archive (*.oppaku-archive)|*.oppaku-archive|ZIP Archive (*.zip)|*.zip|All Files (*.*)|*.*",
                 FileName = defaultName,
                 InitialDirectory = targetDir
             };
@@ -1234,10 +1235,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => f.FullPath.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase)).ToList();
+        var selected = LvFiles.SelectedItems.Cast<FsItem>().Where(f => 
+            f.FullPath.EndsWith(".oppaku-archive", StringComparison.OrdinalIgnoreCase) ||
+            f.FullPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+            ArchivePacker.IsPackedArchive(f.FullPath)).ToList();
         if (selected.Count == 0)
         {
-            MessageBox.Show("Please select an .oppaku-archive file.");
+            MessageBox.Show("Please select an archive file (.oppaku-archive or .zip).");
             return;
         }
 
