@@ -25,8 +25,8 @@ Unlike traditional file splitters that require all parts to be present on the de
 ## ✨ Why is Oppaku Unique?
 
 - 🧩 **Sequential Injection**: You don't need all chunks on the target machine at once. You can move Chunk 1 with a small USB, inject it, delete it from the USB, go back for Chunk 2, and repeat.
-- 📦 **Solid Archives**: Oppaku can now create `.oppaku-archive` solid archives that bundle multiple files into one highly compressed payload.
-- 🗜️ **Brotli Compression & AES-256**: Archives can be heavily compressed (up to 'Extreme' level) using Brotli algorithms and securely encrypted via AES-256 CBC.
+- 📦 **Universal Solid Archives**: Oppaku creates `.oppaku-archive` and `.zip` archives with industry-standard container structures (`PK\x03\x04`), making them directly extractable by **PeaZip, 7-Zip, WinRAR, and Windows File Explorer** while retaining legacy fallback support.
+- 🗜️ **Brotli Compression & AES-256**: Archives can be compressed up to 'Extreme' level using multi-tier compression mapping.
 - 🚀 **Zero-Storage Streaming**: When chunking large folders, Oppaku utilizes a custom `VirtualFolderStream` to calculate hashes and slice chunks on the fly directly from the source directory, **without creating any intermediate temp files**.
 - 🔒 **Cryptographic Verification**: The original file's SHA-256 hash is embedded directly into the chunk's metadata. When you are done rebuilding, Oppaku mathematically guarantees your final file is a bit-for-bit perfect match.
 
@@ -56,10 +56,10 @@ By streaming directly from the file system, Oppaku bypasses the need for massive
 
 Oppaku provides two native ways to interact with the engine, sharing the same `Oppaku.Core` library.
 
-### 1. The WPF GUI
+### 1. The WPF GUI (`OppakuGUI.exe`)
 A beautiful, modern Windows application featuring dynamic progress tracking, native file exploration, and intuitive dialogs for compression levels and overwrite safety.
 
-### 2. The Terminal CLI
+### 2. The Terminal CLI (`oppaku.exe`)
 A robust, cross-platform command-line interface perfect for scripts, automation, or headless servers.
 
 ```powershell
@@ -74,43 +74,43 @@ oppaku unarchive --source .\backup.oppaku-archive --dest .\output
 
 ## ⚡ Getting Started
 
-### Prerequisites
+### 📦 Windows MSI Installer (Recommended)
+You can install Oppaku on Windows with the native **`.msi`** installer:
+- **Default Installation**: Installs to `C:\Oppaku` with self-contained GUI (`OppakuGUI.exe`) and CLI (`oppaku.exe`) executables (**zero .NET runtime required**).
+- **System PATH**: Automatically adds `oppaku` CLI to your terminal PATH.
+- **Shortcuts**: Adds Start Menu and Desktop shortcuts for the GUI.
+- **Maintenance**: Native Windows Repair and Uninstall support.
 
+To build the MSI installer locally:
+```powershell
+powershell -ExecutionPolicy Bypass -File installer/build_installer.ps1
+```
+The resulting installer will be generated at `publish/Oppaku-Setup.msi`.
+
+---
+
+### Running from Source
+
+#### Prerequisites
 - [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/ali38958/Oppaku-Chunker.git
-   cd Oppaku-Chunker
-   ```
-
-2. **Run the GUI Application**
-   ```bash
-   dotnet run --project src/Oppaku.Gui
-   ```
-
-3. **Run the CLI Application**
-   ```bash
-   dotnet run --project src/Oppaku.Cli -- --help
-   ```
-
-### 📦 Building Standalone Executables
-
-If you want to build a single `.exe` file that you can share with computers that don't have .NET installed:
-
-**Build GUI:**
+#### Run via .NET CLI:
 ```bash
-dotnet publish src\Oppaku.Gui -c Release -r win-x64 --self-contained
-```
-*(The executable will be located at `src\Oppaku.Gui\bin\Release\net10.0-windows\win-x64\publish\Oppaku.exe`)*
+# Run GUI Application
+dotnet run --project src/Oppaku.Gui
 
-**Build CLI:**
-```bash
-dotnet publish src\Oppaku.Cli -c Release -r win-x64 --self-contained
+# Run CLI Application
+dotnet run --project src/Oppaku.Cli -- --help
 ```
-*(The executable will be located at `src\Oppaku.Cli\bin\Release\net10.0\win-x64\publish\oppaku.exe`)*
+
+---
+
+## 💡 Important Tips & Best Practices
+
+> [!TIP]
+> **Keep Chunk Size Consistent for a File**:
+> Oppaku writes each chunk to its exact physical byte offset in the destination file. However, the progress tracker embeds chunk indices `[0 ... N]` based on your chosen chunk size.
+> - Always use the **same chunk size** for all parts of a single file during extraction so that `finalise` can cleanly verify completeness across the full index range without index mismatch warnings.
 
 ---
 

@@ -36,12 +36,25 @@ Once all parts are inserted, select any `.oppk` file from the set and your Targe
 ------------------------------------------------
 2. USING THE CLI APP
 ------------------------------------------------
-To use the CLI globally, build it and add the executable to your system PATH:
+Easiest Installation:
+Run the MSI Installer (`publish/Oppaku-Setup.msi`), which automatically installs Oppaku to `C:\Oppaku` and adds the `oppaku` command to your system PATH.
+
+Alternatively, build and publish standalone:
 > dotnet publish src/Oppaku.Cli -c Release -r win-x64 --self-contained
-Then add the resulting publish folder to your Windows Environment Variables.
-Once installed, you can just type `oppaku` from any folder.
+
+Once installed, you can just type `oppaku` from any terminal.
 
 CLI COMMANDS:
+
+[ARCHIVE]
+Packs a file or directory into a standard-compatible archive (.oppaku-archive or .zip).
+Command:
+> oppaku archive --source <path> --dest <file> [--compression <none|normal|high|extreme>] [--password <pwd>]
+
+[UNARCHIVE]
+Extracts a standard-compatible archive.
+Command:
+> oppaku unarchive --source <archive> --dest <folder> [--password <pwd>] [--overwrite]
 
 [EXTRACT]
 Splits a source file or folder into parts and extracts specific ones to a destination.
@@ -76,8 +89,10 @@ Example:
 > oppaku finalise --chunk "E:\USB\LargeGame.part0.oppk" --dest "D:\RestoredFiles\LargeGame.oppaku.zip"
 
 ------------------------------------------------
-FEATURES & RESILIENCY
+BEST PRACTICES & RESILIENCY
 ------------------------------------------------
-- Folder Support: If you select a folder as the source, Oppaku automatically compresses it temporarily in the background before chunking it.
-- Smart State Resumption: A hidden `.progress` file is maintained alongside the rebuilt file tracking exactly which parts are merged and which are missing.
-- Verification: The `Finalise` operation guarantees bit-for-bit accuracy using cryptographic hashing.
+- Chunk Size Consistency: Always maintain the same chunk size for all parts of a file during extraction so the progress index tracker [0..N] matches cleanly during finalisation.
+- Universal Archive Support: .oppaku-archive files use standard ZIP container structures, allowing them to be opened and extracted directly with PeaZip, 7-Zip, WinRAR, and Windows File Explorer.
+- Zero-Space Sparse Rebuilding: Chunks write directly to exact byte offsets in the target sparse file, eliminating temporary files during rebuilding.
+- Cryptographic Verification: Finalise validates the whole-file SHA-256 hash before declaring the file complete.
+
