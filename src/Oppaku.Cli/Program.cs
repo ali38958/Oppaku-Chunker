@@ -12,9 +12,15 @@ class Program
 {
     static void Main(string[] args)
     {
-        if (args.Length == 0 || args[0] == "-h" || args[0] == "--help")
+        if (args.Length == 0 || args[0] is "-h" or "--help" or "-help" or "help" or "/h" or "/?" or "-?")
         {
             ShowHelp();
+            return;
+        }
+
+        if (args[0] is "-v" or "--v" or "-version" or "--version" or "version" or "v" or "/v" or "/version")
+        {
+            ShowVersion();
             return;
         }
 
@@ -40,6 +46,14 @@ class Program
                 case "unarchive":
                     Unarchive(args);
                     break;
+                case "version":
+                case "-v":
+                case "--v":
+                case "-version":
+                case "--version":
+                case "v":
+                    ShowVersion();
+                    break;
                 default:
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Unknown command: {command}");
@@ -54,6 +68,13 @@ class Program
             Console.WriteLine($"\n[ERROR] {ex.Message}");
             Console.ResetColor();
         }
+    }
+
+    static void ShowVersion()
+    {
+        var asm = typeof(Program).Assembly;
+        var infoVersion = asm.GetName().Version?.ToString(2) ?? "0.7";
+        Console.WriteLine($"Oppaku v{infoVersion}");
     }
 
     static void ShowHelp()
@@ -81,6 +102,9 @@ Commands:
   finalise  Verify and finalise a rebuilt file. (can also use 'finalize')
             Usage: oppaku finalise --chunk <any_chunk.oppk> --dest <file>
             Example: oppaku finalise --chunk .\part0.oppk --dest .\rebuilt_file.zip
+
+  version   Display the current version info. (Flags: -v, --v, -version, --version)
+            Example: oppaku --version
 ");
     }
 
