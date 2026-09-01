@@ -302,4 +302,11 @@ Moving forward, Oppaku is pivoting to become a comprehensive archiving solution.
 - Implemented Solid Archives (.oppaku-archive) with Brotli Compression and AES-256 Encryption.
 - Modernized Oppaku.Cli with archive and unarchive commands to match the GUI features.
 - Generated Top-Star README and implemented strict Proprietary License documentation.
-- Next: Further cloud and network hooks, or archive management commands.
+
+### Session 2026-09-01 Notes
+- Implemented universal ZIP container format in `ArchivePacker.cs` for `.oppaku-archive` and `.zip` files, resolving decompression failures in PeaZip, 7-Zip, WinRAR, and Windows Explorer.
+- Retained full backwards compatibility for legacy `OPPAKAR2` and `OPPAKARC` archive formats.
+- Added comprehensive unit tests in `ArchivePackerTests.cs` (17 tests total passing).
+- Updated GUI save file filters, extract dialogs, and toolbar tooltips.
+- Next: Network/cloud streaming hooks and archive management features.
+
