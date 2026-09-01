@@ -32,7 +32,7 @@ public static class ThemeManager
             _                          => "EspressoDarkTheme.xaml"
         };
 
-        var uri = new Uri($"pack://application:,,,/Oppaku;component/Themes/{themeFileName}", UriKind.Absolute);
+        var uri = new Uri($"pack://application:,,,/OppakuGUI;component/Themes/{themeFileName}", UriKind.Absolute);
         var newThemeDict = new ResourceDictionary { Source = uri };
 
         var appResources = Application.Current.Resources;
