@@ -59,8 +59,8 @@ class Program
     static void ShowHelp()
     {
         Console.WriteLine(@"
-Oppaku - File Chunker & Archiver CLI
-====================================
+Oppaku - File Chunker & Archiver CLI v0.7
+=========================================
 Commands:
   archive   Create a zero-space compressed solid archive.
             Usage: oppaku archive --source <path> --dest <file> [--password <pwd>] [--compression <none|normal|high|extreme>]

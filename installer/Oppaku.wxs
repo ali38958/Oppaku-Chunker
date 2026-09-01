@@ -3,7 +3,7 @@
   
   <Package Name="Oppaku"
            Manufacturer="Oppaku"
-           Version="1.0.0"
+           Version="0.7.0"
            UpgradeCode="9B74E51C-7F79-4B82-959D-35BCBEE1557A"
            Scope="perMachine">
 

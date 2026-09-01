@@ -96,7 +96,7 @@ public partial class MainWindow : Window
         EnableSmoothScrolling(LstLog);
         
         LoadRootNodes();
-        Log("Oppaku Archive Manager ready.");
+        Log("Oppaku Archive Manager v0.7 ready.");
         UpdateStatus();
         
         this.Closing += MainWindow_Closing;
