@@ -1,0 +1,95 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  
+  <Package Name="Oppaku"
+           Manufacturer="Oppaku"
+           Version="1.0.0"
+           UpgradeCode="9B74E51C-7F79-4B82-959D-35BCBEE1557A"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Oppaku is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Application Icon for Add/Remove Programs -->
+    <Icon Id="OppakuAppIcon" SourceFile="assets\logo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="OppakuAppIcon" />
+
+    <!-- Default Install Folder Property: C:\Oppaku -->
+    <Property Id="INSTALLFOLDER" Value="C:\Oppaku" />
+
+    <!-- Directory Structure -->
+    <StandardDirectory Id="TARGETDIR">
+      <Directory Id="INSTALLFOLDER" Name="Oppaku" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Oppaku" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Core Files & Environment Components -->
+    <ComponentGroup Id="ProductComponents">
+      
+      <!-- 1. GUI Executable -->
+      <Component Id="OppakuGuiComponent" Directory="INSTALLFOLDER" Guid="A3E45678-1234-4567-89AB-CDEF01234567">
+        <File Id="OppakuExe" Source="publish\gui\Oppaku.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- 2. CLI Executable -->
+      <Component Id="OppakuCliComponent" Directory="INSTALLFOLDER" Guid="B4F56789-2345-5678-9ABC-DEF012345678">
+        <File Id="OppakuCliExe" Source="publish\cli\oppaku.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- 3. System Environment PATH (adds C:\Oppaku to PATH) -->
+      <Component Id="OppakuPathComponent" Directory="INSTALLFOLDER" Guid="C5A67890-3456-6789-ABCD-EF0123456789">
+        <Environment Id="PATH"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Oppaku" Name="PathConfigured" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- 4. Start Menu Shortcut -->
+      <Component Id="ApplicationShortcut" Directory="ApplicationProgramsFolder" Guid="D6B78901-4567-789A-BCDE-F0123456789A">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Oppaku"
+                  Description="Oppaku - File Chunker &amp; Archiver"
+                  Target="[INSTALLFOLDER]Oppaku.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="OppakuAppIcon" />
+        <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Oppaku" Name="installed_startmenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- 5. Desktop Shortcut -->
+      <Component Id="DesktopShortcutComponent" Directory="DesktopFolder" Guid="E7C89012-5678-89AB-CDEF-0123456789AB">
+        <Shortcut Id="ApplicationDesktopShortcut"
+                  Name="Oppaku"
+                  Description="Oppaku - File Chunker &amp; Archiver"
+                  Target="[INSTALLFOLDER]Oppaku.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="OppakuAppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\Oppaku" Name="installed_desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Features Hierarchy -->
+    <Feature Id="ProductFeature" Title="Oppaku" Level="1" Display="expand">
+      <ComponentRef Id="OppakuGuiComponent" />
+      <ComponentRef Id="OppakuCliComponent" />
+      <ComponentRef Id="OppakuPathComponent" />
+      <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="DesktopShortcutComponent" />
+    </Feature>
+
+    <!-- UI Configuration -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
+
+  </Package>
+</Wix>
