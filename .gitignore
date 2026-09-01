@@ -49,3 +49,12 @@ publish/
 *.oppaku-archive
 *.oppaku-dir
 *.log
+
+# Windows Installers & WiX Build Outputs
+*.msi
+*.msu
+*.msp
+*.wixpdb
+*.wixobj
+*.cab
+
