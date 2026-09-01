@@ -307,6 +307,9 @@ Moving forward, Oppaku is pivoting to become a comprehensive archiving solution.
 - Implemented universal ZIP container format in `ArchivePacker.cs` for `.oppaku-archive` and `.zip` files, resolving decompression failures in PeaZip, 7-Zip, WinRAR, and Windows Explorer.
 - Retained full backwards compatibility for legacy `OPPAKAR2` and `OPPAKARC` archive formats.
 - Added comprehensive unit tests in `ArchivePackerTests.cs` (17 tests total passing).
-- Updated GUI save file filters, extract dialogs, and toolbar tooltips.
+- Created WiX Toolset v5 native Windows MSI Installer (`Oppaku-Setup.msi`) with `C:\Oppaku` default target, terminal `PATH` integration, Start Menu / Desktop shortcuts, and Maintenance Mode (Repair & Uninstall).
+- Separated `OppakuGUI.exe` and `oppaku.exe` to prevent Windows case-insensitive collision and ensure `oppaku` command runs directly in terminal with live progress bars.
+- Updated `README.md` and `how_to_use.txt` with installer instructions and chunk size consistency best practices.
 - Next: Network/cloud streaming hooks and archive management features.
+
 
