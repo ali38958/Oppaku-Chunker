@@ -7,7 +7,7 @@
            UpgradeCode="9B74E51C-7F79-4B82-959D-35BCBEE1557A"
            Scope="perMachine">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Oppaku is already installed." />
+    <MajorUpgrade AllowDowngrades="yes" Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Application Branding Icon -->
