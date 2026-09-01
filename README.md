@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.ico" alt="Oppaku Logo" width="160" />
+  <img src="assets/logo.png" alt="Oppaku Logo" width="160" />
 
   # Oppaku File Chunker & Archiver
   
