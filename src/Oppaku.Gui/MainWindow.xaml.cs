@@ -899,8 +899,9 @@ public partial class MainWindow : Window
         // Register the active TextBox so clicking more .oppk files appends here
         _activeRebuildFilesTxt = txtFiles;
         
-        fixedTop.Children.Add(CreateLabel("Target Rebuild File / Directory:"));
-        var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, true, "All Files (*.*)|*.*");
+        fixedTop.Children.Add(CreateLabel("Target Directory:"));
+        fixedTop.Children.Add(CreateSecondaryLabel("Select the folder where the rebuilt file will be created. Oppaku auto-detects the target file from chunk metadata.", wrap: true));
+        var outField = CreateBrowseField(TxtCurrentPath.Text == "This PC" ? "" : TxtCurrentPath.Text, false);
         fixedTop.Children.Add(outField.Container);
 
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
