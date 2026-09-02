@@ -80,7 +80,7 @@ public static class FolderPacker
 
     public static void Unpack(string archivePath, string destDir, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
-        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         using var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
 
         string magic = reader.ReadString();
@@ -116,10 +116,19 @@ public static class FolderPacker
                         cancellationToken.ThrowIfCancellationRequested();
 
                         int toRead = (int)Math.Min(buffer.Length, bytesRemaining);
+                        long readOffset = fs.Position;
                         int bytesRead = fs.Read(buffer, 0, toRead);
                         if (bytesRead == 0) throw new EndOfStreamException("Unexpected end of archive.");
 
                         destStream.Write(buffer, 0, bytesRead);
+                        
+                        // Hole-punching to free space immediately (zero-space overhead)
+                        try 
+                        {
+                            SparseFileHelper.SetZeroData(fs.SafeFileHandle, readOffset, bytesRead);
+                        } 
+                        catch { /* Ignore hole punch errors on non-NTFS/non-sparse volumes */ }
+
                         bytesRemaining -= bytesRead;
                         totalExtracted += bytesRead;
                         progress?.Report(totalExtracted);
