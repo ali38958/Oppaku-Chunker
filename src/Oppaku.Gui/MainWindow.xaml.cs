@@ -1078,10 +1078,15 @@ public partial class MainWindow : Window
 
             if (FolderPacker.IsPackedFolder(targetFile))
             {
-                string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
-                SetIndeterminate("Unpacking Folder", "Restoring folder...");
-                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>(), ct), ct);
-                Log($"✓ Extracted folder to {destDir}");
+                string finalDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile;
+                string tempDir = finalDir + "_unpacking";
+                SetIndeterminate("Unpacking Folder", "Restoring original folder...");
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+                await Task.Run(() => FolderPacker.Unpack(targetFile, tempDir, new Progress<long>(), ct), ct);
+                File.Delete(targetFile);
+                if (Directory.Exists(finalDir)) Directory.Delete(finalDir, true);
+                Directory.Move(tempDir, finalDir);
+                Log($"✓ Restored folder → {finalDir}");
             }
             
             ClearProgress("Finalisation Complete");
@@ -1397,10 +1402,15 @@ public partial class MainWindow : Window
 
             if (FolderPacker.IsPackedFolder(targetFile))
             {
-                string destDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile + "_extracted";
-                SetIndeterminate("Unpacking Folder", "Restoring folder...");
-                await Task.Run(() => FolderPacker.Unpack(targetFile, destDir, new Progress<long>(), ct), ct);
-                Log($"✓ Extracted folder to {destDir}");
+                string finalDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile;
+                string tempDir = finalDir + "_unpacking";
+                SetIndeterminate("Unpacking Folder", "Restoring original folder...");
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+                await Task.Run(() => FolderPacker.Unpack(targetFile, tempDir, new Progress<long>(), ct), ct);
+                File.Delete(targetFile);
+                if (Directory.Exists(finalDir)) Directory.Delete(finalDir, true);
+                Directory.Move(tempDir, finalDir);
+                Log($"✓ Restored folder → {finalDir}");
             }
             
             ClearProgress("Verification Complete");

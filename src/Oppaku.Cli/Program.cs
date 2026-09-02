@@ -329,16 +329,20 @@ Commands:
 
             if (FolderPacker.IsPackedFolder(targetFile))
             {
-                string destDir = targetFile.EndsWith(".oppaku-dir") 
-                    ? targetFile.Substring(0, targetFile.Length - 11) 
-                    : targetFile + "_extracted";
+                string finalDir = targetFile.EndsWith(".oppaku-dir") ? targetFile.Substring(0, targetFile.Length - 11) : targetFile;
+                string tempDir = finalDir + "_unpacking";
 
-                Console.WriteLine($"[3/3] Unpacking folder to '{destDir}' using zero-space hole-punching...");
+                Console.WriteLine($"[3/3] Restoring original folder...");
                 var unpackProgress = new Progress<long>(bytes =>
                     PrintProgress(bytes, contentSize, $"{FormatBytes(bytes)} / {FormatBytes(contentSize)} unpacked"));
                 
-                FolderPacker.Unpack(targetFile, destDir, unpackProgress);
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+                FolderPacker.Unpack(targetFile, tempDir, unpackProgress);
                 Console.WriteLine();
+                File.Delete(targetFile);
+                if (Directory.Exists(finalDir)) Directory.Delete(finalDir, true);
+                Directory.Move(tempDir, finalDir);
+                Console.WriteLine($"  Restored folder → {finalDir}");
             }
 
             Console.ForegroundColor = ConsoleColor.Green;
