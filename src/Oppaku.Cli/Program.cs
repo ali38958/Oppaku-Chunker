@@ -73,7 +73,7 @@ class Program
     static void ShowVersion()
     {
         var asm = typeof(Program).Assembly;
-        var infoVersion = asm.GetName().Version?.ToString(2) ?? "0.7";
+        var infoVersion = asm.GetName().Version?.ToString(3) ?? "0.7.1";
         Console.WriteLine($"Oppaku v{infoVersion}");
     }
 

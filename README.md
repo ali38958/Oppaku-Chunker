@@ -5,13 +5,13 @@
 
   **A cryptographic, sparse-file based zero-storage utility for transporting massive files via tiny storage devices.**
 
-  [![Version](https://img.shields.io/badge/Version-0.7.0-blueviolet?style=flat-square)](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.0)
+  [![Version](https://img.shields.io/badge/Version-0.7.1-blueviolet?style=flat-square)](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.1)
   [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
   [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows)](https://github.com/ali38958/Oppaku-Chunker/releases)
   [![License: Personal Use Only](https://img.shields.io/badge/License-Personal%20Use%20Only-orange.svg?style=flat-square)](#-license--ownership)
   [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
 
-  [📦 Download v0.7.0](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.0) • [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 CLI Reference](#-cli-reference) • [🤝 Contributing](#-contributing)
+  [📦 Download v0.7.1](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.1) • [✨ Features](#-why-is-oppaku-unique) • [🏗️ Architecture](#-zero-storage-architecture) • [⚡ Quick Start](#-getting-started) • [💻 CLI Reference](#-cli-reference) • [🤝 Contributing](#-contributing)
 
 </div>
 
@@ -58,7 +58,7 @@ By streaming directly from the file system, Oppaku bypasses `%TEMP%` file creati
 
 ### 📦 Windows Installer — Zero Dependencies (Recommended)
 
-> **[⬇️ Download Oppaku-Setup.msi (v0.7.0)](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.0)**
+> **[⬇️ Download Oppaku-Setup.msi (v0.7.1)](https://github.com/ali38958/Oppaku-Chunker/releases/tag/v0.7.1)**
 
 The installer is **fully self-contained** — no .NET runtime required on the target machine.
 
