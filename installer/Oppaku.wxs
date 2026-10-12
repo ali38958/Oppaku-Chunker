@@ -3,7 +3,7 @@
   
   <Package Name="Oppaku"
            Manufacturer="Oppaku"
-           Version="0.7.0"
+           Version="0.7.1"
            UpgradeCode="9B74E51C-7F79-4B82-959D-35BCBEE1557A"
            Scope="perMachine">
 
@@ -57,7 +57,7 @@
       <Component Id="ApplicationShortcut" Directory="ApplicationProgramsFolder" Guid="D6B78901-4567-789A-BCDE-F0123456789A">
         <Shortcut Id="ApplicationStartMenuShortcut"
                   Name="Oppaku"
-                  Description="Oppaku - File Chunker &amp; Archiver"
+                  Description="Oppaku - File Chunker"
                   Target="[INSTALLFOLDER]OppakuGUI.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="OppakuAppIcon" />
@@ -69,7 +69,7 @@
       <Component Id="DesktopShortcutComponent" Directory="DesktopFolder" Guid="E7C89012-5678-89AB-CDEF-0123456789AB">
         <Shortcut Id="ApplicationDesktopShortcut"
                   Name="Oppaku"
-                  Description="Oppaku - File Chunker &amp; Archiver"
+                  Description="Oppaku - File Chunker"
                   Target="[INSTALLFOLDER]OppakuGUI.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="OppakuAppIcon" />

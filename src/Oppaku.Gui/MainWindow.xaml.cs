@@ -96,7 +96,7 @@ public partial class MainWindow : Window
         EnableSmoothScrolling(LstLog);
         
         LoadRootNodes();
-        Log("Oppaku Archive Manager v0.7 ready.");
+        Log("Oppaku File Chunker v0.7 ready.");
         UpdateStatus();
         
         this.Closing += MainWindow_Closing;
@@ -1103,130 +1103,6 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Log($"Finalisation failed: {ex.Message}");
-            ClearProgress("Failed");
-            MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
-    // 3. CREATE ARCHIVE (V3)
-    private void BtnToolCreateArchive_Click(object sender, RoutedEventArgs e)
-    {
-        if (IsTaskRunning)
-        {
-            MessageBox.Show("A task is currently running. Please wait for it to finish or cancel it first.", "Task in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var selected = LvFiles.SelectedItems.Cast<FsItem>().ToList();
-        if (selected.Count == 0 && !string.IsNullOrEmpty(TxtCurrentPath.Text) && TxtCurrentPath.Text != "This PC")
-        {
-            selected.Add(new FsItem { FullPath = TxtCurrentPath.Text, Name = Path.GetFileName(TxtCurrentPath.Text) });
-        }
-        if (selected.Count != 1)
-        {
-            MessageBox.Show("Please select exactly one file or folder to archive.");
-            return;
-        }
-
-        string sourcePath = selected[0].FullPath;
-        
-        var fixedTop = new StackPanel();
-        fixedTop.Children.Add(CreateHeaderLabel("Create Archive"));
-        fixedTop.Children.Add(CreateSecondaryLabel($"Source: {sourcePath}", wrap: true));
-        
-        fixedTop.Children.Add(CreateLabel("Compression Level:"));
-        var cboCompression = new ComboBox { Margin = new Thickness(0,0,0,15) };
-        cboCompression.ItemsSource = Enum.GetValues(typeof(OppakuCompressionLevel));
-        cboCompression.SelectedItem = OppakuCompressionLevel.Normal;
-        fixedTop.Children.Add(cboCompression);
-        
-        fixedTop.Children.Add(CreateLabel("Password (optional):"));
-        var txtPwd = new PasswordBox { Margin = new Thickness(0,0,0,20) };
-        fixedTop.Children.Add(txtPwd);
-
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,5,0,0) };
-        var btnCancel = new Button { Content = "Cancel", Style = (Style)FindResource("GhostBtn"), Margin = new Thickness(0,0,10,0) };
-        btnCancel.Click += (s,ev) => {
-            if (IsTaskRunning)
-            {
-                ConfirmAndCancelActiveTask();
-                return;
-            }
-            CloseDialog();
-        };
-        var btnStart = new Button { Content = "Create", Style = (Style)FindResource("AccentBtn") };
-        
-        btnStart.Click += async (s,ev) => {
-            if (IsTaskRunning) { MessageBox.Show("A task is already running."); return; }
-            string targetDir = Directory.Exists(sourcePath) ? sourcePath : (Path.GetDirectoryName(sourcePath) ?? "C:\\");
-            string baseName = Path.GetFileName(sourcePath);
-            string defaultName = baseName + ".oppaku-archive";
-            int counter = 1;
-            
-            while (File.Exists(Path.Combine(targetDir, defaultName)))
-            {
-                defaultName = $"{baseName} ({counter}).oppaku-archive";
-                counter++;
-            }
-
-            var saveDialog = new Microsoft.Win32.SaveFileDialog
-            {
-                Title = "Save Archive As",
-                Filter = "Oppaku Archive (*.oppaku-archive)|*.oppaku-archive|ZIP Archive (*.zip)|*.zip|All Files (*.*)|*.*",
-                FileName = defaultName,
-                InitialDirectory = targetDir
-            };
-            if (saveDialog.ShowDialog() == true)
-            {
-                string pwd = txtPwd.Password;
-                var compression = (OppakuCompressionLevel)cboCompression.SelectedItem;
-                btnStart.IsEnabled = false;
-                _activeTaskCts = new CancellationTokenSource();
-                var ct = _activeTaskCts.Token;
-                try
-                {
-                    await DoCreateArchive(sourcePath, saveDialog.FileName, string.IsNullOrEmpty(pwd) ? null : pwd, compression, ct);
-                }
-                finally
-                {
-                    _activeTaskCts?.Dispose();
-                    _activeTaskCts = null;
-                    btnStart.IsEnabled = true;
-                }
-            }
-        };
-        
-        btnPanel.Children.Add(btnCancel);
-        btnPanel.Children.Add(btnStart);
-        
-        ShowDialog(CreateDialogContainer(fixedTop, null, btnPanel));
-    }
-
-    private async Task DoCreateArchive(string sourcePath, string outPath, string? pwd, OppakuCompressionLevel compression, CancellationToken ct)
-    {
-        Log("─────────────────────────────────");
-        SetIndeterminate("Creating Archive", "Packing into secure archive...");
-        try
-        {
-            var prog = new Progress<long>(b => {
-                Dispatcher.Invoke(() => SetIndeterminate("Creating Archive", $"Compressing: {FormatBytes(b)} processed..."));
-            });
-            await Task.Run(() => ArchivePacker.Pack(sourcePath, outPath, pwd, compression, prog, ct), ct);
-            Log("✓ Archive created successfully");
-            ClearProgress("Complete");
-            MessageBox.Show("Archive created successfully.", "Success");
-            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
-        }
-        catch (OperationCanceledException)
-        {
-            Log("⚠️ Archive creation cancelled. Incomplete archive deleted.");
-            ClearProgress("Cancelled");
-            MessageBox.Show("Archive creation was cancelled. The incomplete archive file was deleted.", "Cancelled", MessageBoxButton.OK, MessageBoxImage.Information);
-            if (Directory.Exists(TxtCurrentPath.Text)) NavigateTo(TxtCurrentPath.Text);
-        }
-        catch (Exception ex)
-        {
-            Log($"Error creating archive: {ex.Message}");
             ClearProgress("Failed");
             MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }

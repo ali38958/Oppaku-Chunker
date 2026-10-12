@@ -40,9 +40,6 @@ class Program
                 case "finalize":
                     Finalise(args);
                     break;
-                case "archive":
-                    Archive(args);
-                    break;
                 case "unarchive":
                     Unarchive(args);
                     break;
@@ -80,17 +77,9 @@ class Program
     static void ShowHelp()
     {
         Console.WriteLine(@"
-Oppaku - File Chunker & Archiver CLI v0.7
-=========================================
+Oppaku - File Chunker CLI v0.7
+==============================
 Commands:
-  archive   Create a zero-space compressed solid archive.
-            Usage: oppaku archive --source <path> --dest <file> [--password <pwd>] [--compression <none|normal|high|extreme>]
-            Example: oppaku archive --source .\folder --dest .\backup.oppaku-archive --compression extreme
-
-  unarchive Extract a solid archive.
-            Usage: oppaku unarchive --source <archive> --dest <folder> [--password <pwd>] [--overwrite]
-            Example: oppaku unarchive --source .\backup.oppaku-archive --dest .\output
-
   extract   Extract parts from a source file or folder (virtual stream chunking).
             Usage: oppaku extract --source <path> --dest <folder> --size <num> --unit <KB|MB|GB> --parts <all | 0,1,2>
             Example: oppaku extract --source .\myfolder --dest .\output --size 100 --unit MB --parts all
@@ -102,6 +91,10 @@ Commands:
   finalise  Verify and finalise a rebuilt file. (can also use 'finalize')
             Usage: oppaku finalise --chunk <any_chunk.oppk> --dest <file>
             Example: oppaku finalise --chunk .\part0.oppk --dest .\rebuilt_file.zip
+
+  unarchive Extract a solid archive.
+            Usage: oppaku unarchive --source <archive> --dest <folder> [--password <pwd>] [--overwrite]
+            Example: oppaku unarchive --source .\backup.oppaku-archive --dest .\output
 
   version   Display the current version info. (Flags: -v, --v, -version, --version)
             Example: oppaku --version
@@ -367,32 +360,6 @@ Commands:
         }
     }
 
-    static void Archive(string[] args)
-    {
-        string source = GetArg(args, "--source", true);
-        string dest = GetArg(args, "--dest", true);
-        string? password = GetArg(args, "--password", false);
-        string compStr = GetArg(args, "--compression", false)?.ToLowerInvariant() ?? "normal";
-
-        OppakuCompressionLevel compLevel = compStr switch
-        {
-            "none" => OppakuCompressionLevel.None,
-            "normal" => OppakuCompressionLevel.Normal,
-            "high" => OppakuCompressionLevel.High,
-            "extreme" => OppakuCompressionLevel.Extreme,
-            _ => throw new ArgumentException("Compression must be none, normal, high, or extreme.")
-        };
-
-        long size = Directory.Exists(source) ? GetDirectorySize(source) : new FileInfo(source).Length;
-        Console.WriteLine($"[1/1] Archiving {FormatBytes(size)}...");
-
-        var progress = new Progress<long>(bytesWritten =>
-            PrintProgress(bytesWritten, size, $"{FormatBytes(bytesWritten)} / {FormatBytes(size)} archived"));
-
-        ArchivePacker.Pack(source, dest, password, compLevel, progress);
-        Console.WriteLine($"\n✓ Archive created at: {dest}");
-    }
-
     static void Unarchive(string[] args)
     {
         string source = GetArg(args, "--source", true);
@@ -418,13 +385,4 @@ Commands:
         Console.WriteLine($"\n✓ Extracted to: {dest}");
     }
 
-    static long GetDirectorySize(string p)
-    {
-        long b = 0;
-        foreach (string name in Directory.GetFiles(p, "*", SearchOption.AllDirectories))
-        {
-            try { b += new FileInfo(name).Length; } catch { }
-        }
-        return b;
-    }
 }

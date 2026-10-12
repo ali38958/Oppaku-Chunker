@@ -47,12 +47,6 @@
                     <Border Width="1" Height="20" Background="{DynamicResource DividerToolbar}" Margin="10,0"/>
 
                     <!-- GROUP 2: Archive -->
-                    <Button x:Name="BtnToolCreateArchive"
-                            Style="{DynamicResource ToolbarBtn}"
-                            Content="📦 Create Archive"
-                            ToolTip="Pack a file or folder into an archive (.oppaku-archive or .zip)"
-                            Margin="0,0,4,0"
-                            Click="BtnToolCreateArchive_Click"/>
                     <Button x:Name="BtnToolExtractArchive"
                             Style="{DynamicResource ToolbarBtn}"
                             Content="📂 Extract Archive"
@@ -192,7 +186,6 @@
                     <ListView.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="✂️ Extract Chunks..."    Click="BtnToolExtractChunks_Click"/>
-                            <MenuItem Header="📦 Create Archive..."    Click="BtnToolCreateArchive_Click"/>
                             <Separator/>
                             <MenuItem Header="📂 Extract Archive..."   Click="BtnToolExtractArchive_Click"/>
                             <MenuItem Header="🧩 Insert Chunks..."     Click="BtnToolRebuild_Click"/>

@@ -31,7 +31,12 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
     wix extension add --global WixToolset.UI.wixext/5.0.2
 }
 
-wix build -ext WixToolset.UI.wixext installer/Oppaku.wxs -o publish/Oppaku-Setup.msi
+$wixVer = (wix --version 2>$null)
+if ($wixVer -match '^4\.') {
+    wix build -ext WixToolset.UI.wixext/4.0.5 installer/Oppaku.wxs -o publish/Oppaku-Setup.msi
+} else {
+    wix build -ext WixToolset.UI.wixext installer/Oppaku.wxs -o publish/Oppaku-Setup.msi
+}
 if ($LASTEXITCODE -ne 0) { throw "WiX build failed." }
 
 $msiFile = Get-Item "publish/Oppaku-Setup.msi"

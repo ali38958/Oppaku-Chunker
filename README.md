@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/logo.ico" alt="Oppaku Logo" width="160" />
 
-  # Oppaku File Chunker & Archiver
+  # Oppaku File Chunker
 
   **A cryptographic, sparse-file based zero-storage utility for transporting massive files via tiny storage devices.**
 
@@ -28,8 +28,6 @@ Unlike traditional file splitters that require all parts to be present on the de
 ## ✨ Why is Oppaku Unique?
 
 - 🧩 **Sequential Injection**: You don't need all chunks on the target machine at once. Carry Chunk 1 on a USB, inject it, delete it, go back for Chunk 2, and repeat — the destination drive is never overfilled.
-- 📦 **Universal Solid Archives**: Creates `.oppaku-archive` files using standard ZIP containers (`PK\x03\x04`), directly extractable by **PeaZip, 7-Zip, WinRAR, and Windows File Explorer**.
-- 🗜️ **Multi-Level Compression**: Four compression tiers (`None → Normal → High → Extreme`) using industry-standard algorithms.
 - 🚀 **Zero-Storage Streaming**: A custom `VirtualFolderStream` reads the source directory on-the-fly and slices chunks **without creating any temporary files**.
 - 🔒 **Cryptographic Verification**: SHA-256 hash is embedded in every chunk's metadata — `finalise` mathematically guarantees a bit-for-bit perfect rebuild.
 - 🖥️ **Dual Interface**: A modern WPF GUI and a full-featured terminal CLI sharing the same engine.
@@ -102,12 +100,6 @@ powershell -ExecutionPolicy Bypass -File installer/build_installer.ps1
 # Show version
 oppaku --version
 
-# Create an extreme-compressed solid archive
-oppaku archive --source .\my-folder --dest .\backup.oppaku-archive --compression extreme
-
-# Extract an archive
-oppaku unarchive --source .\backup.oppaku-archive --dest .\output
-
 # Split a large file/folder into 2 GB chunks
 oppaku extract --source "C:\LargeGame" --dest "E:\USB" --size 2 --unit GB --parts all
 
@@ -125,8 +117,6 @@ oppaku finalise --chunk "E:\USB\LargeGame.part0.oppk" --dest "D:\Restored\LargeG
 > [!TIP]
 > **Keep Chunk Size Consistent**: Always use the same chunk size for all parts of a file during extraction. Oppaku uses exact byte offsets, but the progress tracker stores indices `[0 ... N]` based on the size chosen — mixing sizes causes index warnings during `finalise`.
 
-> [!NOTE]
-> **Universal Archive Compatibility**: `.oppaku-archive` files use standard ZIP containers and can be opened directly in 7-Zip, PeaZip, WinRAR, and Windows Explorer without any Oppaku installation.
 
 ---
 
@@ -134,10 +124,10 @@ oppaku finalise --chunk "E:\USB\LargeGame.part0.oppk" --dest "D:\Restored\LargeG
 
 | Module | Description |
 |--------|-------------|
-| `Oppaku.Core` | The shared engine: Hashing, Chunking, Rebuilding, Archiving, Cryptography, and Virtual Streams. |
+| `Oppaku.Core` | The shared engine: Hashing, Chunking, Rebuilding, Cryptography, and Virtual Streams. |
 | `Oppaku.Gui` | Windows WPF graphical interface (`OppakuGUI.exe`). |
 | `Oppaku.Cli` | Terminal command-line interface (`oppaku.exe`). |
-| `tests/` | xUnit test suite — 17 tests covering cryptographic integrity and archive format correctness. |
+| `tests/` | xUnit test suite — covering cryptographic integrity, chunk verification, and rebuilding correctness. |
 | `installer/` | WiX v5 MSI installer source and build script. |
 
 ---
