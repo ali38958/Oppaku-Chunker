@@ -46,17 +46,7 @@
                     <!-- Divider -->
                     <Border Width="1" Height="20" Background="{DynamicResource DividerToolbar}" Margin="10,0"/>
 
-                    <!-- GROUP 2: Archive -->
-                    <Button x:Name="BtnToolExtractArchive"
-                            Style="{DynamicResource ToolbarBtn}"
-                            Content="📂 Extract Archive"
-                            ToolTip="Extract an archive (.oppaku-archive or .zip)"
-                            Click="BtnToolExtractArchive_Click"/>
-
-                    <!-- Divider -->
-                    <Border Width="1" Height="20" Background="{DynamicResource DividerToolbar}" Margin="10,0"/>
-
-                    <!-- GROUP 3: Tools -->
+                    <!-- GROUP 2: Tools -->
                     <Button x:Name="BtnToolHashCheck"
                             Style="{DynamicResource ToolbarBtn}"
                             Content="🛡️ Hash Check"
@@ -186,8 +176,6 @@
                     <ListView.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="✂️ Extract Chunks..."    Click="BtnToolExtractChunks_Click"/>
-                            <Separator/>
-                            <MenuItem Header="📂 Extract Archive..."   Click="BtnToolExtractArchive_Click"/>
                             <MenuItem Header="🧩 Insert Chunks..."     Click="BtnToolRebuild_Click"/>
                             <Separator/>
                             <MenuItem Header="📁 Open in Explorer"     Click="MenuOpenInExplorer_Click"/>

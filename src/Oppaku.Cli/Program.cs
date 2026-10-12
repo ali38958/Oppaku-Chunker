@@ -40,9 +40,6 @@ class Program
                 case "finalize":
                     Finalise(args);
                     break;
-                case "unarchive":
-                    Unarchive(args);
-                    break;
                 case "version":
                 case "-v":
                 case "--v":
@@ -91,10 +88,6 @@ Commands:
   finalise  Verify and finalise a rebuilt file. (can also use 'finalize')
             Usage: oppaku finalise --chunk <any_chunk.oppk> --dest <file>
             Example: oppaku finalise --chunk .\part0.oppk --dest .\rebuilt_file.zip
-
-  unarchive Extract a solid archive.
-            Usage: oppaku unarchive --source <archive> --dest <folder> [--password <pwd>] [--overwrite]
-            Example: oppaku unarchive --source .\backup.oppaku-archive --dest .\output
 
   version   Display the current version info. (Flags: -v, --v, -version, --version)
             Example: oppaku --version
@@ -358,31 +351,6 @@ Commands:
             }
             throw new Exception($"{ex.Message}{extraInfo}");
         }
-    }
-
-    static void Unarchive(string[] args)
-    {
-        string source = GetArg(args, "--source", true);
-        string dest = GetArg(args, "--dest", true);
-        string? password = GetArg(args, "--password", false);
-        bool forceOverwrite = args.Contains("--overwrite", StringComparer.OrdinalIgnoreCase);
-
-        var fi = new FileInfo(source);
-        Console.WriteLine($"[1/1] Extracting {FormatBytes(fi.Length)}...");
-
-        var progress = new Progress<long>(bytesRead =>
-            PrintProgress(bytesRead, fi.Length, $"{FormatBytes(bytesRead)} / {FormatBytes(fi.Length)} read"));
-
-        ArchivePacker.Unpack(source, dest, password, (path) =>
-        {
-            if (forceOverwrite) return true;
-            Console.WriteLine();
-            Console.Write($"\n[WARNING] File already exists: {path}\nOverwrite? [y/N]: ");
-            var key = Console.ReadLine();
-            return key?.Trim().ToLowerInvariant() == "y";
-        }, progress);
-
-        Console.WriteLine($"\n✓ Extracted to: {dest}");
     }
 
 }
